@@ -2,7 +2,7 @@
 
 import { fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js';
 import { fetchItemMarketLow } from './torn.js';
-import { prescreen, buildFlipRows, buildDollarRows, passesFilters, sortByTotalProfit } from './profit.js';
+import { prescreen, pickBuyer, buildFlipRows, buildDollarRows, passesFilters, sortByTotalProfit } from './profit.js';
 
 const noop = () => {};
 
@@ -26,6 +26,7 @@ export async function runFlipScan(settings, { onProgress = noop, signal, deps = 
     catalogSize: items.length,
     candidates: candidates.length,
     withoutBuyer: 0,
+    buyerBelowRating: 0,
     generatedAt,
   };
 
@@ -59,7 +60,11 @@ export async function runFlipScan(settings, { onProgress = noop, signal, deps = 
       continue;
     }
 
+    // Getrennt zaehlen: "gibt keinen Kaeufer" und "alle unter der
+    // Mindestbewertung" sind verschiedene Gruende, und nur der zweite laesst
+    // sich ueber die Einstellungen aendern.
     if (!tradersRes.traders.length) stats.withoutBuyer += 1;
+    else if (!pickBuyer(tradersRes.traders, settings)) stats.buyerBelowRating += 1;
 
     const itemRows = buildFlipRows({
       itemId: candidate.itemId,
@@ -94,7 +99,7 @@ export async function runDollarScan(settings, { onProgress = noop, signal, deps 
   const rows = buildDollarRows(collected, settings).filter((r) => passesFilters(r, settings));
   return {
     rows: sortByTotalProfit(rows),
-    stats: { catalogSize: collected.length, candidates: collected.length, withoutBuyer: 0 },
+    stats: { catalogSize: collected.length, candidates: collected.length, withoutBuyer: 0, buyerBelowRating: 0 },
   };
 }
 

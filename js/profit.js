@@ -26,11 +26,16 @@ export function prescreen(items, settings) {
     .slice(0, Math.max(0, settings.maxCandidates));
 }
 
+/** Mindestbewertung als Zahl, robust gegen ein leeres oder unsinniges Feld. */
+export function minRating(settings) {
+  const n = Number(settings.minBuyerRating);
+  return Number.isFinite(n) ? n : 0;
+}
+
 /** Bester Kaeufer aus der Traderliste, oder null. */
 export function pickBuyer(traders, settings) {
-  const eligible = settings.requireNonNegativeRating
-    ? traders.filter((t) => t.ratingScore >= 0)
-    : traders;
+  const min = minRating(settings);
+  const eligible = traders.filter((t) => t.ratingScore >= min);
   if (!eligible.length) return null;
   return eligible.reduce((best, t) => (t.price > best.price ? t : best), eligible[0]);
 }

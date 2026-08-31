@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  prescreen, pickBuyer, buildFlipRows, buildDollarRows, passesFilters, sortByTotalProfit,
+  prescreen, pickBuyer, minRating, buildFlipRows, buildDollarRows, passesFilters, sortByTotalProfit,
 } from '../js/profit.js';
 
 const base = {
@@ -10,7 +10,7 @@ const base = {
   marketFeePct: 0,
   prescreenPct: 90,
   maxCandidates: 10,
-  requireNonNegativeRating: true,
+  minBuyerRating: 0,
   minProfitAbs: 0,
   minProfitPct: 0,
   maxBuyPrice: 0,
@@ -41,14 +41,37 @@ test('prescreen respektiert den maximalen Kaufpreis', () => {
   assert.deepEqual(out.map((i) => i.itemId), [2]);
 });
 
-test('pickBuyer nimmt den hoechsten Preis mit akzeptabler Bewertung', () => {
-  const traders = [
-    { playerId: 1, playerName: 'Teuer aber mies', price: 900, ratingScore: -5 },
-    { playerId: 2, playerName: 'Gut', price: 800, ratingScore: 10 },
-  ];
-  assert.equal(pickBuyer(traders, base).playerId, 2);
-  assert.equal(pickBuyer(traders, { ...base, requireNonNegativeRating: false }).playerId, 1);
+const TRADERS = [
+  { playerId: 1, playerName: 'Teuer aber mies', price: 900, ratingScore: -5 },
+  { playerId: 2, playerName: 'Solide', price: 800, ratingScore: 10 },
+  { playerId: 3, playerName: 'Sehr gut', price: 700, ratingScore: 50 },
+];
+
+test('pickBuyer nimmt den hoechsten Preis oberhalb der Mindestbewertung', () => {
+  assert.equal(pickBuyer(TRADERS, base).playerId, 2);
   assert.equal(pickBuyer([], base), null);
+});
+
+test('eine hoehere Mindestbewertung verschiebt die Wahl auf den besseren Kaeufer', () => {
+  assert.equal(pickBuyer(TRADERS, { ...base, minBuyerRating: 20 }).playerId, 3);
+  assert.equal(pickBuyer(TRADERS, { ...base, minBuyerRating: 50 }).playerId, 3);
+  assert.equal(pickBuyer(TRADERS, { ...base, minBuyerRating: 51 }), null);
+});
+
+test('ein negativer Wert laesst auch schlecht bewertete Kaeufer zu', () => {
+  assert.equal(pickBuyer(TRADERS, { ...base, minBuyerRating: -10 }).playerId, 1);
+});
+
+test('die Grenze ist einschliesslich', () => {
+  assert.equal(pickBuyer(TRADERS, { ...base, minBuyerRating: 10 }).playerId, 2);
+});
+
+test('minRating faengt ein leeres oder unsinniges Feld ab', () => {
+  assert.equal(minRating({ minBuyerRating: 5 }), 5);
+  assert.equal(minRating({ minBuyerRating: -3 }), -3);
+  assert.equal(minRating({ minBuyerRating: '' }), 0);
+  assert.equal(minRating({ minBuyerRating: 'abc' }), 0);
+  assert.equal(minRating({}), 0);
 });
 
 const item = {
@@ -85,10 +108,10 @@ test('ohne Kaeufer rechnet der Marktpreis-Modus weiter', () => {
   assert.equal(rows[0].referenceLabel, 'Marktpreis');
 });
 
-test('negativ bewerteter Kaeufer wird zum Ausschluss der Zeilen', () => {
+test('faellt der einzige Kaeufer durch den Filter, entstehen keine Zeilen', () => {
   const shady = { ...item, traders: [{ playerId: 99, playerName: 'Shady', price: 780000, ratingScore: -1 }] };
   assert.deepEqual(buildFlipRows(shady, base), []);
-  assert.equal(buildFlipRows(shady, { ...base, requireNonNegativeRating: false }).length, 2);
+  assert.equal(buildFlipRows(shady, { ...base, minBuyerRating: -5 }).length, 2);
 });
 
 test('Sicherheitsabschlag und Gebuehr wirken multiplikativ', () => {

@@ -5,10 +5,9 @@ import { renderRows, renderHead, setStatus, installSorting, fmtMoney } from './u
 
 const NUMERIC_FIELDS = new Set([
   'sellFactor', 'marketFeePct', 'prescreenPct', 'maxCandidates', 'listingsPerItem',
-  'tradersPerItem', 'tradedWithinHours', 'minProfitAbs', 'minProfitPct',
-  'maxBuyPrice', 'budget', 'autoRefreshSec',
+  'tradersPerItem', 'tradedWithinHours', 'minBuyerRating', 'minProfitAbs',
+  'minProfitPct', 'maxBuyPrice', 'budget', 'autoRefreshSec',
 ]);
-const BOOLEAN_FIELDS = new Set(['requireNonNegativeRating']);
 
 let currentRows = [];
 let sorter = null;
@@ -21,9 +20,7 @@ function formToSettings() {
   for (const key of Object.keys(DEFAULTS)) {
     const el = document.getElementById(key);
     if (!el) continue;
-    if (BOOLEAN_FIELDS.has(key)) settings[key] = el.checked;
-    else if (NUMERIC_FIELDS.has(key)) settings[key] = Number(el.value);
-    else settings[key] = el.value;
+    settings[key] = NUMERIC_FIELDS.has(key) ? Number(el.value) : el.value;
   }
   return settings;
 }
@@ -35,9 +32,7 @@ function refreshRenderOpts(settings = loadSettings()) {
 function settingsToForm(settings) {
   for (const [key, value] of Object.entries(settings)) {
     const el = document.getElementById(key);
-    if (!el) continue;
-    if (BOOLEAN_FIELDS.has(key)) el.checked = Boolean(value);
-    else el.value = value;
+    if (el) el.value = value;
   }
 }
 
@@ -54,16 +49,24 @@ function setProgress(pct) {
   bar.firstElementChild.style.width = `${Math.max(0, Math.min(100, pct))}%`;
 }
 
+function dropReasons(stats, settings) {
+  if (settings.scanMode !== 'flip') return '';
+  const parts = [];
+  if (stats.withoutBuyer) parts.push(`${stats.withoutBuyer} ohne aktiven Käufer`);
+  if (stats.buyerBelowRating) {
+    parts.push(`${stats.buyerBelowRating} nur unter Bewertung ${settings.minBuyerRating}`);
+  }
+  return parts.length ? ` Davon ${parts.join(', ')}.` : '';
+}
+
 function summarise(rows, stats, settings) {
+  const why = dropReasons(stats, settings);
   if (!rows.length) {
-    const why = settings.scanMode === 'flip' && stats.withoutBuyer
-      ? ` ${stats.withoutBuyer} der ${stats.candidates} Kandidaten hatten keinen aktiven Käufer.`
-      : '';
     return `Keine Treffer über den Filtern. ${stats.candidates} Kandidaten geprüft.${why}`;
   }
   const total = rows.reduce((sum, r) => sum + r.totalProfit, 0);
   return `${rows.length} Treffer aus ${stats.candidates} Kandidaten. `
-    + `Summe über alle Zeilen: ${fmtMoney(total)}.`;
+    + `Summe: ${fmtMoney(total)}.${why}`;
 }
 
 async function runScan() {

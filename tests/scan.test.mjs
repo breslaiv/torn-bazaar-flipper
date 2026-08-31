@@ -11,7 +11,7 @@ const settings = {
   listingsPerItem: 20,
   tradersPerItem: 10,
   tradedWithinHours: 48,
-  requireNonNegativeRating: true,
+  minBuyerRating: 0,
   minProfitAbs: 0,
   minProfitPct: 0,
   maxBuyPrice: 0,
@@ -66,6 +66,7 @@ test('Items ohne Kaeufer werden gezaehlt statt still verschluckt', async () => {
   const { rows, stats } = await runFlipScan(settings, { deps: d });
   assert.equal(rows.length, 0);
   assert.equal(stats.withoutBuyer, 1);
+  assert.equal(stats.buyerBelowRating, 0, 'ohne Kaeufer ist kein Bewertungsproblem');
 });
 
 test('ein fehlgeschlagenes Item bricht den Scan nicht ab', async () => {

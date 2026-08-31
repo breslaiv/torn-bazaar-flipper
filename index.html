@@ -90,8 +90,10 @@
         <input type="number" id="tradedWithinHours" min="0" max="168" step="1">
         <span class="hint">Nur Käufer mit Handel in diesem Zeitraum. 0 = kein Filter.</span>
       </label>
-      <label class="field" data-flip-only>Bewertung
-        <span><input type="checkbox" id="requireNonNegativeRating"> keine negativ bewerteten Käufer</span>
+      <label class="field" data-flip-only>Mindestbewertung Käufer
+        <input type="number" id="minBuyerRating" step="1">
+        <span class="hint">Upvotes minus Downvotes, wie im Chip neben dem Käufer.
+          0 lässt neue Käufer zu, negative Werte auch schlecht bewertete.</span>
       </label>
     </div>
 

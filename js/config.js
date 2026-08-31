@@ -36,7 +36,10 @@ export const DEFAULTS = {
   listingsPerItem: 20,
   tradersPerItem: 10,
   tradedWithinHours: 48,       // 0 = kein Zeitfilter
-  requireNonNegativeRating: true,
+  // Upvotes minus Downvotes, wie im Chip neben dem Kaeufer. 0 entspricht dem
+  // frueheren "keine negativ bewerteten Kaeufer"; negative Werte lassen auch
+  // schlecht bewertete zu.
+  minBuyerRating: 0,
 
   // Filter
   minProfitAbs: 10000,

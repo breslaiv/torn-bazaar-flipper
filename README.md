@@ -37,8 +37,23 @@ bezahlten Eintrag vorne an, unabhängig vom Preis. Wer die Liste für sortiert h
 teurer als nötig. Der Client sortiert selbst nach und markiert die Zeile als `gesponsert`.
 
 **Der höchste Preis ist nicht das beste Angebot.** Ein Käufer mit 6 Downvotes, der 10.000
-mehr bietet, ist kein Fortschritt. Standardmäßig fallen negativ bewertete Käufer raus; das
-Häkchen lässt sich abwählen.
+mehr bietet, ist kein Fortschritt. Unter *Mindestbewertung Käufer* steht die Untergrenze
+für Upvotes minus Downvotes — dieselbe Zahl, die als Chip neben dem Käufer steht. Die
+Vorgabe 0 lässt neue Käufer zu und schließt negativ bewertete aus; negative Werte lassen
+auch die zu.
+
+Höhere Ansprüche kosten Marge, weil der bestbewertete Käufer selten der teuerste ist:
+
+| Mindestbewertung | gewählter Käufer | Profit |
+|---|---|---|
+| −5 | −3, bietet $790.000 | $377.500 |
+| 0 | +10, bietet $780.000 | $337.500 |
+| 50 | +59, bietet $760.000 | $240.000 |
+
+Damit sich der Wert überhaupt einstellen lässt, nennt die Statuszeile den Grund für
+fehlende Treffer getrennt: „ohne aktiven Käufer" heißt, es gibt für dieses Item keinen —
+„nur unter Bewertung 10" heißt, es gäbe welche, sie sind dir nur zu schlecht bewertet.
+Nur der zweite Fall lässt sich über die Einstellungen ändern.
 
 Zeilen, deren Bazaar-Preis unter 15 % des Marktpreises liegt, bekommen ein `prüfen`-Flag
 statt weggefiltert zu werden — solche Ausreißer sind meist ein veraltetes Listing.
@@ -227,9 +242,9 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-80 Tests über Response-Parsing, Vorauswahl, Profit-Rechnung, Scan-Ablauf, Markup,
-Sortierung und Link-Erzeugung sowie die Key-, CSP-, Workflow- und Mobile-Prüfungen aus
-den Abschnitten oben.
+84 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
+Markup, Sortierung und Link-Erzeugung sowie die Key-, CSP-, Workflow- und
+Mobile-Prüfungen aus den Abschnitten oben.
 
 Der Sortier-Controller wird gegen einen kleinen DOM-Stub getestet (`tests/sorting.test.mjs`),
 weil dort ein Fehler saß, den die reine Sortierfunktion nicht zeigen konnte.
