@@ -160,6 +160,14 @@ const STAT_COLUMNS = [
     }),
   },
   {
+    key: 'model',
+    // Nachvollziehbar statt Blackbox: welches Modell diese Reihe gerade
+    // erklaert, und ob es ueberhaupt schon gemessen wurde.
+    label: 'Modell',
+    align: 'left',
+    cell: (r) => ({ text: r.a.model ? r.a.model.label : 'noch keins geprüft' }),
+  },
+  {
     key: 'error',
     // Die Zahl, an der sich das Modell messen lassen muss: um wieviel lagen
     // seine eigenen Vorhersagen daneben, gegen die spaeter gemessene Menge?
@@ -251,11 +259,12 @@ function renderStats() {
     : null;
 
   document.getElementById('statsHint').textContent = rows.length
-    ? 'Aus diesen Reihen entsteht die Vorhersage. Die Spalte „Fehler" prüft sie gegen sich '
-      + 'selbst: aus dem Anfang der Reihe vorhersagen, mit dem nächsten echten Wert vergleichen.'
+    ? 'Vier Modelle treten je Reihe gegeneinander an; gewählt wird das, welches auf deren '
+      + 'eigener Vergangenheit am besten lag. Die Spalte „Fehler" ist das Maß dafür, '
+      + '„Bereich traf" prüft die angegebene Spanne.'
       + (checks
         ? ` Bisher ${checks} Kontrollen, im Schnitt ${Math.round(fehler)} Stück daneben.`
-        : ' Ab der dritten Messung je Reihe beginnt das.')
+        : ` Ab ${'vier'} Kontrollen je Reihe darf ein Modell den Standard ablösen.`)
     : 'Jedes Laden der Vorräte und jede Eingabe von Hand legt hier eine Messung ab.';
 }
 

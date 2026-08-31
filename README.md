@@ -536,6 +536,32 @@ nach Wissen; die Entscheidung lautet aber *reicht es für meine Plätze?* Deshal
 über eine angenommene Verteilung: jedes gemessene Tempo ist ein Szenario. Mit wenigen Messungen
 kommen dabei grobe Werte heraus — ehrlicher als eine glatte Kurve über drei Punkte.
 
+### Vier Modelle treten gegeneinander an
+
+Statt eines fest verdrahteten Modells konkurrieren vier Kandidaten, und **je Messreihe gewinnt
+das, welches auf deren eigener Vergangenheit am besten lag**:
+
+| Modell | Annahme |
+|---|---|
+| `bleibt wie es ist` | Nichts passiert. Für ein stehendes Regal die richtige Antwort. |
+| `Netto-Trend` | Zu- und Abgänge in einer Zahl. Wo sich Nachschub und Abverkauf bei stundenlangen Messabständen nicht trennen lassen, ehrlicher als zwei Größen, die beide daneben liegen. |
+| `Abverkauf + Nachschub` | Fallende Abschnitte ergeben das Tempo, steigende den Nachschub samt Takt. Der Standard, solange nichts gemessen ist. |
+| `Tempo nach Tageszeit` | Nur Abschnitte aus derselben Tageszeit wie die Ankunft. Abends leert sich ein Regal schneller als nachts. |
+
+Das ist die ehrliche Form von „lernt dazu": die App **misst**, welche Erklärung zu diesem Regal
+passt, statt sie zu raten. Mit jeder Messung wächst die Prüfmenge, und der Sieger kann wechseln.
+Welches Modell gerade gewinnt, steht im Panel *Beobachtungen* — nachvollziehbar statt Blackbox.
+
+**Zwei Bremsen gegen Überanpassung.** Wer auf zehn Prüfpunkten unter fünfzig Modellen wählt,
+wählt Rauschen. Deshalb: erst ab vier bestandenen Kontrollen darf ein Modell den Standard
+ablösen, und bei annähernd gleichem Fehler gewinnt das **einfachere**. Ein Wechsel wegen zwei
+Prozent Vorsprung wäre kein Lernen.
+
+**Ein Modell darf sich abmelden.** *Tempo nach Tageszeit* liefert nichts, wenn für die
+Ankunftszeit keine vergleichbaren Abschnitte vorliegen — bei einem Zehn-Stunden-Flug der
+Regelfall. Dann rückt der nächstbeste Kandidat nach. (Zuerst blockierte das die ganze Zeile:
+der Sieger schwieg, und die Vorhersage sagte *zu wenig Daten*, obwohl drei Modelle bereitstanden.)
+
 ### Die Vorhersage prüft sich selbst
 
 Jede Reihe wird gegen ihre eigene Vergangenheit getestet: aus dem Anfang vorhersagen, mit dem
@@ -545,13 +571,19 @@ schon in der Reihe — und liefert zwei Zahlen, die im Panel *Beobachtungen* ste
 - **Fehler**: um wie viel Stück die eigenen Vorhersagen im Median danebenlagen.
 - **Bereich traf**: wie oft der angegebene Bereich den später gemessenen Wert enthielt.
 
-Daraus kommt die Güte — gemessen, nicht geschätzt. *brauchbar* heißt: mindestens drei bestandene
-Kontrollen, typischer Fehler unter einem Viertel der vorhergesagten Menge, **und** der Bereich
-enthielt den echten Wert in mindestens der Hälfte der Fälle. Genau diese letzte Bedingung fehlte
-zuerst: im Browsertest stand „brauchbar" an einer Reihe, deren Bereich in *keinem* einzigen Fall
-getroffen hatte. Ist der gemessene Fehler größer, als die Streuung der Tempi hergibt, weitet er
-zusätzlich den angezeigten Bereich — ein Bereich, den die eigene Vergangenheit widerlegt hat,
-wäre Scheingenauigkeit.
+**Der Bereich lernt seine eigene Breite** (Konformalprognose): er kommt aus der Verteilung der
+tatsächlichen Abweichungen, nicht aus gesetzten Quantilen. Ein 80%-Bereich ist damit einer, der
+in der Vergangenheit zu 80% getroffen hat — nachprüfbar, und mit jeder Messung genauer.
+Herangezogen werden Fehler aus ähnlich langen Horizonten, denn die Unsicherheit wächst mit der
+Flugzeit; deshalb sagt die Selbstkontrolle nicht nur den nächsten Punkt vorher, sondern auch den
+übernächsten und den darauf. Fehlen passende Horizonte ganz, wird mit der Wurzel des
+Verhältnisses gestreckt — eine Annahme, aber eine benannte, und die Zeile sagt es dazu.
+
+Daraus kommt die Güte — gemessen, nicht geschätzt. *brauchbar* heißt: mindestens vier bestandene
+Kontrollen, frische Daten, der Bereich enthielt den echten Wert in mindestens der Hälfte der
+Fälle, **und** er ist schmal genug, um darauf zu entscheiden. Die letzte Bedingung kam dazu, als
+die erste den Zweck verfehlte: seit die Breite aus den eigenen Fehlern kommt, *trifft* der
+Bereich fast immer — er wird eben breit. Ein Bereich von 0 bis 400 ist verlässlich und wertlos.
 
 **Was die App nicht gesehen hat, sagt sie nicht vorher.** Unter zwei Messungen steht dort
 *zu wenig Daten*. Eine erfundene Zahl ist hier besonders teuer — man fliegt drei Stunden und
@@ -610,7 +642,9 @@ js/app.js           Verdrahtung, Fortschritt
 travel.html         Flugplaner: Ziele, Erträge, Vorratsvorhersage
 js/travel.js        Länder, Reisezeiten, Ertrag je Flug und Minute
 js/yata.js          YATA-Client für die Auslandsvorräte, defensiv geparst
-js/travelStock.js   Messreihen, Abverkauf, Nachschub, Vorhersage
+js/stats.js         Median, Altersgewichtung, gewichtete Quantile
+js/travelModels.js  die konkurrierenden Vorhersagemodelle
+js/travelStock.js   Messreihen, Modellwahl, Konformalbereich, Vorhersage
 js/travelPage.js    Verdrahtung der Flugseite
 ledger.html         Buchführung über Käufe, Verkäufe und Profit
 js/ledger.js        Ereignismodell, FIFO-Zuordnung, Kennzahlen, Zeitraeume
@@ -635,9 +669,9 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-288 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
+305 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
 Parallelität und Abbruch, Zeitstempel-Deutung, Scan-Ablauf, Markup, Sortierung,
-Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status, Bestandsbewertung, Flugplanung, Vorratsvorhersage und Persistenz sowie die Key-, CSP-,
+Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status, Bestandsbewertung, Flugplanung, Modellwahl, Vorratsvorhersage und Persistenz sowie die Key-, CSP-,
 Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
 
 Der Sortier-Controller wird gegen einen kleinen DOM-Stub getestet (`tests/sorting.test.mjs`),

@@ -12,10 +12,12 @@ function fakeStorage() {
 globalThis.localStorage = fakeStorage();
 
 const {
-  recordSnapshot, estimate, predict, predictRange, chanceAtLeast, backtest,
+  recordSnapshot, estimate, predict, chanceAtLeast, backtest,
+  evaluateModels, chooseModel, conformalInterval,
   weightAt, weightedQuantile, seriesFor, loadStock, saveStock,
-  MAX_SAMPLES, HALF_LIFE_MINUTES,
+  MAX_SAMPLES, HALF_LIFE_MINUTES, MIN_CHECKS,
 } = await import('../js/travelStock.js');
+const { MODELS, modelByKey, runModel } = await import('../js/travelModels.js');
 
 const MIN = 60000;
 const T0 = 1_700_000_000_000;
@@ -189,16 +191,24 @@ test('das Tempo von heute schlaegt das von vorgestern', () => {
 
 // ---------- Bereich und Wahrscheinlichkeit ----------
 
-test('der Bereich spannt langsamen gegen schnellen Abverkauf', () => {
-  // Mal 1/min, mal 7/min: der Bereich muss beide Tempi umfassen. Dass die
-  // mittlere Zahl dabei auf einem Rand liegen kann, ist kein Fehler - bei
-  // zwei gleich haeufigen Tempi gibt es keine Mitte dazwischen.
-  const s = series([[0, 500], [10, 490], [20, 420], [30, 410], [40, 340]]);
-  const p = predictRange(s, 30, T0 + 40 * MIN);
+test('der Bereich umschliesst die Vorhersage und bleibt im Moeglichen', () => {
+  const s = series([[0, 500], [10, 490], [20, 420], [30, 410], [40, 340], [50, 330], [60, 260]]);
+  const p = predict(s, 30, T0 + 60 * MIN);
   assert.ok(p.low <= p.quantity && p.quantity <= p.high, `${p.low} ≤ ${p.quantity} ≤ ${p.high}`);
-  assert.ok(p.high - p.low >= 100, 'zwei so verschiedene Tempi muessen einen Bereich ergeben');
-  assert.equal(p.low, 130, 'schnellstes Tempo: 340 minus 30 Minuten à 7');
-  assert.equal(p.high, 310, 'langsamstes: 340 minus 30 Minuten à 1');
+  assert.ok(p.low >= 0);
+  assert.ok(p.high <= 500, 'nie mehr als je gesehen');
+});
+
+test('ein unruhiges Regal bekommt einen breiteren Bereich als ein ruhiges', () => {
+  // Genau das soll die Konformalprognose leisten: die Breite kommt aus den
+  // eigenen Fehlern, also aus der Unruhe der Reihe selbst.
+  const ruhig = series(Array.from({ length: 9 }, (_, i) => [i * 10, 400 - i * 20]));
+  const unruhig = series([[0, 400], [10, 120], [20, 380], [30, 90], [40, 360], [50, 100], [60, 340], [70, 80], [80, 300]]);
+
+  const a = predict(ruhig, 20, T0 + 80 * MIN);
+  const b = predict(unruhig, 20, T0 + 80 * MIN);
+  assert.ok((b.high - b.low) > (a.high - a.low),
+    `unruhig ${b.high - b.low} sollte breiter sein als ruhig ${a.high - a.low}`);
 });
 
 test('ohne Beobachtung gibt es weder Zahl noch Bereich', () => {
@@ -233,9 +243,10 @@ test('backtest sagt aus der Vergangenheit die Gegenwart vorher', () => {
   // sonst stimmt etwas an der Rechnung nicht.
   const gleichmaessig = series(Array.from({ length: 8 }, (_, i) => [i * 10, 500 - i * 20]));
   const a = backtest(gleichmaessig);
-  assert.equal(a.checks, 6);
+  assert.ok(a.checks >= 6, `nur ${a.checks} Kontrollen`);
   assert.equal(a.medianAbsError, 0);
   assert.equal(a.coverage, 1);
+  assert.equal(a.model.key, 'drift', 'der einfachste Kandidat, der die Reihe erklaert');
 });
 
 test('ein einzelner Einbruch zeigt sich im groessten Fehler', () => {
@@ -266,7 +277,7 @@ test('die Guete kommt aus der Selbstkontrolle, sobald es sie gibt', () => {
   const gleichmaessig = series(Array.from({ length: 8 }, (_, i) => [i * 10, 500 - i * 20]));
   const gut = predict(gleichmaessig, 10, T0 + 70 * MIN);
   assert.equal(gut.confidence, 'brauchbar');
-  assert.ok(gut.accuracy.checks >= 3);
+  assert.ok(gut.accuracy.checks >= MIN_CHECKS);
   assert.match(gut.why, /Selbstkontrollen/);
 
   const ruckartig = series([[0, 500], [10, 480], [20, 460], [30, 10], [40, 400], [50, 20], [60, 380]]);
@@ -274,13 +285,13 @@ test('die Guete kommt aus der Selbstkontrolle, sobald es sie gibt', () => {
   assert.equal(schlecht.confidence, 'grob', 'wer sich oft irrt, sagt das auch');
 });
 
-test('ein gemessener Fehler weitet den Bereich', () => {
-  // Ein Bereich, den die eigene Vergangenheit widerlegt hat, waere
-  // Scheingenauigkeit.
-  const ruckartig = series([[0, 500], [10, 480], [20, 100], [30, 480], [40, 120], [50, 470]]);
-  const p = predict(ruckartig, 20, T0 + 50 * MIN);
-  const roh = predictRange(ruckartig, 20, T0 + 50 * MIN);
-  assert.ok(p.high - p.low >= roh.high - roh.low, 'der Bereich darf nur breiter werden');
+test('der Bereich haelt, was er verspricht', () => {
+  // Konformalprognose: die Breite kommt aus der Verteilung der eigenen
+  // Fehler, also muss der angegebene Bereich die Vergangenheit auch
+  // ueberwiegend enthalten haben.
+  const ruckartig = series([[0, 500], [10, 480], [20, 100], [30, 480], [40, 120], [50, 470], [60, 130], [70, 460]]);
+  const p = predict(ruckartig, 20, T0 + 70 * MIN);
+  assert.ok(p.accuracy.coverage >= 0.5, `Trefferquote ${p.accuracy.coverage}`);
   assert.ok(p.low >= 0);
 });
 
@@ -291,16 +302,15 @@ test('auch nach der Weitung bleibt der Bereich im Moeglichen', () => {
   assert.ok(p.high <= 60, `${p.high} liegt ueber dem groessten gesehenen Bestand`);
 });
 
-test('ein Bereich, der nie traf, ist nicht brauchbar', () => {
-  // Der Fall aus dem Browsertest: ein Saegezahn, bei dem der Median-Fehler
-  // klein gegen die Menge bleibt, der angegebene Bereich den echten Wert aber
-  // in keinem einzigen Fall enthielt. Das darf nicht "brauchbar" heissen.
+test('ein Bereich, der alles umfasst, ist keine Auskunft', () => {
+  // Seit die Breite aus den eigenen Fehlern kommt, trifft der Bereich fast
+  // immer - er wird eben breit. Ein Bereich von 0 bis 400 ist verlaesslich
+  // und wertlos, also entscheidet die Breite mit ueber die Guete.
   const saegezahn = series([
-    [0, 400], [20, 280], [40, 340], [60, 400], [80, 280], [100, 340],
-    [120, 400], [140, 280], [160, 340], [180, 400],
+    [0, 400], [20, 40], [40, 380], [60, 30], [80, 390],
+    [100, 20], [120, 400], [140, 35], [160, 395],
   ]);
-  const a = backtest(saegezahn);
-  assert.ok(a.checks >= 5);
-  assert.ok(a.coverage < 0.5, `Trefferquote ${a.coverage} sollte niedrig sein`);
-  assert.equal(predict(saegezahn, 20, T0 + 180 * MIN).confidence, 'grob');
+  const p = predict(saegezahn, 20, T0 + 160 * MIN);
+  assert.ok(p.high - p.low > p.quantity * 0.5, `Bereich ${p.low}–${p.high} sollte breit sein`);
+  assert.equal(p.confidence, 'grob');
 });

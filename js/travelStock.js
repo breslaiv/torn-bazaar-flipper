@@ -22,6 +22,12 @@
 //                vergleichen. So kommt die Guete aus Messung statt aus einer
 //                Faustregel, die ich mir ausgedacht habe.
 
+import { median, weightAt, weightedQuantile, HALF_LIFE_MINUTES } from './stats.js?v=10';
+import { MODELS, modelByKey, runModel } from './travelModels.js?v=10';
+
+// Weitergereicht, damit Aufrufer nur ein Modul kennen muessen.
+export { weightAt, weightedQuantile, HALF_LIFE_MINUTES };
+
 export const STOCK_KEY = 'tbf.travelstock.v1';
 
 /** Beobachtungen je Item. Mehr braucht keine Schaetzung, und der Platz ist knapp. */
@@ -30,55 +36,7 @@ export const MAX_SAMPLES = 40;
 /** Naeher beieinander liegende Messungen sagen nichts Neues. */
 export const MIN_GAP_MS = 60 * 1000;
 
-/**
- * Nach dieser Zeit zaehlt eine Messung nur noch halb. Sechs Stunden decken
- * eine Tageshaelfte ab: genug, um aus mehreren Beobachtungen zu schoepfen,
- * kurz genug, dass der Abend nicht mit dem Vormittag verrechnet wird.
- */
-export const HALF_LIFE_MINUTES = 360;
-
 const MINUTE = 60 * 1000;
-
-function median(values) {
-  if (!values.length) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
-
-/**
- * Gewicht einer Beobachtung, gemessen gegen die juengste Messung derselben
- * Reihe - nicht gegen die Uhr.
- *
- * Der Unterschied ist entscheidend: liegt die letzte Messung einen Tag
- * zurueck, faellt bei einem Bezug auf "jetzt" jedes Gewicht auf null und die
- * Schaetzung waere leer statt alt. Innerhalb der Reihe ist die juengste
- * Messung immer die schwerste, und das ist genau die Aussage - "neuere
- * zaehlen mehr". Wie alt die Reihe insgesamt ist, sagt getrennt die Guete.
- */
-export function weightAt(ts, reference) {
-  const ageMinutes = Math.max(0, (reference - ts) / MINUTE);
-  return 0.5 ** (ageMinutes / HALF_LIFE_MINUTES);
-}
-
-/**
- * Quantil einer gewichteten Stichprobe.
- * @param {Array<{value:number, weight:number}>} samples
- */
-export function weightedQuantile(samples, q) {
-  const rows = samples
-    .filter((s) => Number.isFinite(s.value) && s.weight > 0)
-    .sort((a, b) => a.value - b.value);
-  if (!rows.length) return null;
-
-  const total = rows.reduce((sum, r) => sum + r.weight, 0);
-  let acc = 0;
-  for (const row of rows) {
-    acc += row.weight;
-    if (acc >= q * total) return row.value;
-  }
-  return rows[rows.length - 1].value;
-}
 
 const seriesKey = (country, itemId) => `${country}:${itemId}`;
 
@@ -163,166 +121,296 @@ export function estimate(series = [], now = Date.now()) {
   };
 }
 
-/** Menge nach `horizon` Minuten bei einem angenommenen Abverkaufstempo. */
-function project(e, horizon, drain, minutesAhead, now) {
-  let quantity = e.latest - drain * horizon;
+// ---------- Wettbewerb der Modelle ----------
 
-  if (e.restockAmount && e.restockIntervalMinutes > 0 && e.lastRestockAt) {
-    const since = (now - e.lastRestockAt) / MINUTE + Math.max(0, minutesAhead);
-    quantity += Math.floor(since / e.restockIntervalMinutes) * e.restockAmount;
-  }
+/** Erst ab so vielen Kontrollen darf ein Modell das bisherige abloesen. */
+export const MIN_CHECKS = 4;
 
-  // Nach unten bei null, nach oben beim groessten je gesehenen Bestand: der
-  // Shop haelt ein Maximum, auch wenn die Rechnung darueber hinauslaeuft.
-  return Math.max(0, Math.min(quantity, e.maxSeen ?? quantity));
-}
+/** Standard, solange nichts gemessen ist: das Modell, mit dem die App startete. */
+export const DEFAULT_MODEL = 'restock';
 
 /**
- * Bereich statt Punktzahl: was bei langsamem, mittlerem und schnellem
- * Abverkauf herauskommt.
- */
-export function predictRange(series, minutesAhead, now = Date.now()) {
-  const e = estimate(series, now);
-  if (e.samples < 2 || e.latest === null) return { quantity: null, low: null, high: null, estimate: e };
-
-  // Von der letzten Messung aus rechnen, nicht von jetzt: zwischen beiden
-  // liegt bei einer fremden Quelle oft schon eine Stunde.
-  const elapsed = Math.max(0, (now - e.last) / MINUTE);
-  const horizon = elapsed + Math.max(0, minutesAhead);
-  const at = (drain) => project(e, horizon, drain ?? 0, minutesAhead, now);
-
-  return {
-    quantity: Math.round(at(e.drainPerMinute)),
-    low: Math.round(at(e.drainFast)),
-    high: Math.round(at(e.drainSlow)),
-    horizon,
-    estimate: e,
-  };
-}
-
-/**
- * Wahrscheinlichkeit, dass mindestens `units` Stueck dastehen.
+ * Prueft alle Modelle gegen die Vergangenheit der Reihe.
  *
- * Gerechnet wird ueber die beobachteten Tempi selbst, nicht ueber eine
- * angenommene Verteilung: jedes gemessene Tempo ist ein Szenario, gewichtet
- * nach seinem Alter. Mit wenigen Messungen kommen dabei grobe Werte heraus -
- * das ist ehrlicher als eine glatte Kurve ueber drei Punkte.
+ * Rollender Ursprung: von jedem Punkt aus wird der naechste vorhergesagt und
+ * mit dem echten Wert verglichen. Zusaetzlich der uebernaechste und der
+ * darauffolgende - so entstehen Fehler auch fuer laengere Horizonte, ohne
+ * dass man sie annehmen muss. Ein Flug nach Suedafrika ist eine andere
+ * Aufgabe als einer nach Mexiko, und der Bereich soll das wissen.
  */
-export function chanceAtLeast(series, units, minutesAhead, now = Date.now()) {
-  const e = estimate(series, now);
-  if (e.samples < 2 || e.latest === null) return null;
-
-  const elapsed = Math.max(0, (now - e.last) / MINUTE);
-  const horizon = elapsed + Math.max(0, minutesAhead);
-
-  // Ohne beobachteten Abverkauf gibt es nur ein Szenario: es bleibt, wie es ist.
-  const scenarios = e.drainSamples.length ? e.drainSamples : [{ value: 0, weight: 1 }];
-  const total = scenarios.reduce((sum, s) => sum + s.weight, 0);
-  if (total <= 0) return null;
-
-  const hits = scenarios.reduce((sum, s) => (
-    project(e, horizon, s.value, minutesAhead, now) >= units ? sum + s.weight : sum
-  ), 0);
-  return hits / total;
-}
-
-/**
- * Prueft das Modell gegen die eigene Vergangenheit: aus dem Anfang der Reihe
- * vorhersagen, mit dem naechsten echten Wert vergleichen.
- *
- * Das ist der Unterschied zwischen einer Guete, die gemessen ist, und einer,
- * die ich mir ausgedacht habe. Es kostet keinen zusaetzlichen Speicher - die
- * Antworten stehen schon in der Reihe.
- */
-export function backtest(series = []) {
+export function evaluateModels(series = []) {
   const points = [...series].sort((a, b) => a[0] - b[0]);
-  const errors = [];
-  let covered = 0;
+  const results = new Map();
+  for (const model of MODELS) results.set(model.key, { key: model.key, label: model.label, residuals: [] });
 
   for (let i = 2; i < points.length; i++) {
     const known = points.slice(0, i);
     const asOf = known[known.length - 1][0];
-    const ahead = (points[i][0] - asOf) / MINUTE;
-    const p = predictRange(known, ahead, asOf);
-    if (p.quantity === null) continue;
 
-    const actual = points[i][1];
-    errors.push(Math.abs(p.quantity - actual));
-    if (actual >= Math.min(p.low, p.high) && actual <= Math.max(p.low, p.high)) covered += 1;
+    // Bis zu drei Schritte in die Zukunft, solange die Reihe reicht.
+    for (let step = 0; step < 3 && i + step < points.length; step++) {
+      const [ts, actual] = points[i + step];
+      const ahead = (ts - asOf) / MINUTE;
+      if (ahead <= 0) continue;
+
+      for (const model of MODELS) {
+        const predicted = runModel(model, known, ahead, asOf);
+        if (predicted === null) continue;
+        results.get(model.key).residuals.push({ horizon: ahead, residual: actual - predicted });
+      }
+    }
   }
 
+  for (const r of results.values()) {
+    const errors = r.residuals.map((x) => Math.abs(x.residual));
+    r.checks = errors.length;
+    r.medianAbsError = median(errors);
+    r.worstAbsError = errors.length ? Math.max(...errors) : null;
+  }
+  return results;
+}
+
+/**
+ * Waehlt das Modell fuer diese Reihe.
+ *
+ * Zwei Bremsen gegen Ueberanpassung: ohne Mindestzahl an Kontrollen bleibt es
+ * beim Standard, und bei annaehernd gleichem Fehler gewinnt das einfachere
+ * Modell. Ein Wechsel wegen zwei Prozent Vorsprung waere kein Lernen,
+ * sondern Rauschen.
+ */
+export function rankModels(results) {
+  const usable = [...results.values()]
+    .filter((r) => r.checks >= MIN_CHECKS && Number.isFinite(r.medianAbsError));
+  if (!usable.length) return [];
+
+  const best = Math.min(...usable.map((r) => r.medianAbsError));
+  // Toleranz statt strengem Minimum: der Zuschlag faengt den Fall ab, dass
+  // alle Fehler nahe null liegen und ein Zufall entscheidet.
+  const tolerance = best * 1.1 + 0.5;
+  const eligible = usable.filter((r) => r.medianAbsError <= tolerance)
+    .sort((a, b) => modelByKey(a.key).complexity - modelByKey(b.key).complexity);
+  const rest = usable.filter((r) => r.medianAbsError > tolerance)
+    .sort((a, b) => a.medianAbsError - b.medianAbsError);
+
+  return [...eligible, ...rest].map((r) => ({
+    key: r.key,
+    label: r.label,
+    checks: r.checks,
+    medianAbsError: r.medianAbsError,
+    reason: usable.length > 1 ? `bester von ${usable.length} geprüften Modellen` : 'einziges prüfbares Modell',
+  }));
+}
+
+const fallbackChoice = (reason) => ({
+  key: DEFAULT_MODEL,
+  label: modelByKey(DEFAULT_MODEL).label,
+  checks: 0,
+  reason,
+});
+
+export function chooseModel(results) {
+  return rankModels(results)[0] || fallbackChoice('zu wenig geprüft');
+}
+
+/**
+ * Waehlt das beste Modell, das die gestellte Frage auch beantworten kann.
+ *
+ * Ein Modell darf sich abmelden - "Tempo nach Tageszeit" tut das, wenn fuer
+ * die Ankunftszeit keine vergleichbaren Abschnitte vorliegen. Frueher hat
+ * genau das die ganze Vorhersage blockiert: der Sieger schwieg, und die Zeile
+ * sagte "zu wenig Daten", obwohl drei andere Modelle bereitstanden. Bei einem
+ * Zehn-Stunden-Flug ist das der Regelfall, nicht die Ausnahme.
+ */
+export function chooseModelFor(results, points, minutesAhead, now) {
+  for (const candidate of rankModels(results)) {
+    if (runModel(modelByKey(candidate.key), points, minutesAhead, now) !== null) return candidate;
+  }
+  for (const key of [DEFAULT_MODEL, 'drift', 'flat']) {
+    if (runModel(modelByKey(key), points, minutesAhead, now) !== null) {
+      return fallbackChoice(rankModels(results).length ? 'Ersatz für ein Modell ohne Grundlage' : 'zu wenig geprüft');
+    }
+  }
+  return fallbackChoice('kein Modell mit Grundlage');
+}
+
+/**
+ * Bereich aus den eigenen vergangenen Fehlern (Konformalprognose).
+ *
+ * Statt von mir gesetzter Quantile die Verteilung der tatsaechlichen
+ * Abweichungen: ein 80%-Bereich ist dann einer, der in der Vergangenheit zu
+ * 80% getroffen hat - nachpruefbar, und mit jeder Messung genauer.
+ *
+ * Herangezogen werden Fehler aus aehnlich langen Horizonten, denn die
+ * Unsicherheit waechst mit der Flugzeit. Gibt es davon zu wenige, werden alle
+ * genommen und mit der Wurzel des Verhaeltnisses gestreckt - eine Annahme,
+ * aber eine benannte.
+ */
+export function conformalInterval(residuals, horizon, level = 0.8) {
+  if (!residuals.length) return null;
+
+  const near = residuals.filter((r) => r.horizon >= horizon / 3 && r.horizon <= horizon * 3);
+  const used = near.length >= 3 ? near : residuals;
+  const scale = near.length >= 3
+    ? 1
+    : Math.min(4, Math.max(1, Math.sqrt(horizon / Math.max(1, median(residuals.map((r) => r.horizon))))));
+
+  const values = used.map((r) => r.residual).sort((a, b) => a - b);
+  const tail = (1 - level) / 2;
+  const at = (q) => values[Math.min(values.length - 1, Math.max(0, Math.floor(q * (values.length - 1))))];
+
   return {
-    checks: errors.length,
-    medianAbsError: median(errors),
-    worstAbsError: errors.length ? Math.max(...errors) : null,
-    // Anteil der Faelle, in denen der echte Wert im angegebenen Bereich lag.
-    // Deutlich unter der Haelfte heisst: der Bereich ist zu schmal.
-    coverage: errors.length ? covered / errors.length : null,
+    lowOffset: at(tail) * scale,
+    highOffset: at(1 - tail) * scale,
+    samples: used.length,
+    scaled: scale !== 1,
   };
 }
 
 /**
- * Vorhersage samt Bereich und Guete.
- *
- * @returns {{quantity:number|null, low:number, high:number,
- *            confidence:'unbekannt'|'grob'|'brauchbar', why:string}}
+ * Vorhersage: gewaehltes Modell, Bereich aus gemessenen Fehlern, Guete aus
+ * bestandenen Kontrollen.
  */
 export function predict(series, minutesAhead, now = Date.now()) {
-  const range = predictRange(series, minutesAhead, now);
-  const e = range.estimate;
+  const points = [...series].sort((a, b) => a[0] - b[0]);
+  const e = estimate(points, now);
 
-  if (range.quantity === null) {
+  if (points.length < 2) {
     return {
       quantity: null,
       low: null,
       high: null,
       confidence: 'unbekannt',
       why: 'zu wenige Beobachtungen — beim nächsten Blick wird es besser',
+      model: null,
       estimate: e,
       accuracy: { checks: 0, medianAbsError: null, coverage: null },
     };
   }
 
-  const accuracy = backtest(series);
+  const results = evaluateModels(points);
+  const choice = chooseModelFor(results, points, minutesAhead, now);
+  const model = modelByKey(choice.key);
+  const quantity = runModel(model, points, minutesAhead, now);
 
-  // Der gemessene Fehler weitet den Bereich, wenn er groesser ist als die
-  // Streuung der Tempi hergibt. Ein Bereich, den die eigene Vergangenheit
-  // schon widerlegt hat, waere eine Scheingenauigkeit.
-  let { low, high } = range;
-  if (Number.isFinite(accuracy.medianAbsError)) {
-    low = Math.min(low, range.quantity - accuracy.medianAbsError);
-    high = Math.max(high, range.quantity + accuracy.medianAbsError);
+  if (quantity === null) {
+    return {
+      quantity: null,
+      low: null,
+      high: null,
+      confidence: 'unbekannt',
+      why: `${choice.label} hat für diese Reihe keine Grundlage`,
+      model: choice,
+      estimate: e,
+      accuracy: { checks: 0, medianAbsError: null, coverage: null },
+    };
   }
-  low = Math.max(0, Math.round(low));
-  high = Math.max(low, Math.round(Math.min(high, e.maxSeen ?? high)));
 
-  const parts = [];
-  if (e.drainPerMinute) parts.push(`${e.drainPerMinute.toFixed(1)}/min Abverkauf`);
-  if (e.restockAmount && e.restockIntervalMinutes) {
-    parts.push(`Nachschub ~${Math.round(e.restockAmount)} alle ${Math.round(e.restockIntervalMinutes)} min`);
+  const elapsed = Math.max(0, (now - points[points.length - 1][0]) / MINUTE);
+  const horizon = elapsed + Math.max(0, minutesAhead);
+  const residuals = results.get(choice.key).residuals;
+  const band = conformalInterval(residuals, horizon);
+  const maxSeen = e.maxSeen ?? quantity;
+
+  let low = quantity;
+  let high = quantity;
+  if (band) {
+    low = quantity + band.lowOffset;
+    high = quantity + band.highOffset;
   }
-  if (!parts.length) parts.push('keine Bewegung beobachtet');
+  low = Math.max(0, Math.round(Math.min(low, quantity)));
+  high = Math.min(maxSeen, Math.round(Math.max(high, quantity)));
+
+  const accuracy = accuracyOf(residuals, band, horizon);
+  const parts = [`Modell „${choice.label}"`];
   if (accuracy.checks) {
     parts.push(`${accuracy.checks} Selbstkontrollen, Median-Fehler ${Math.round(accuracy.medianAbsError)}`);
+  } else {
+    parts.push(choice.reason);
   }
+  if (band?.scaled) parts.push('Bereich auf die Flugzeit hochgerechnet');
 
-  // Die Guete kommt aus der Selbstkontrolle, sobald es genug davon gibt.
-  // Zwei Bedingungen, und beide muessen halten: der typische Fehler klein
-  // gegen die vorhergesagte Menge, und der angegebene Bereich muss den echten
-  // Wert wenigstens in der Haelfte der Faelle enthalten haben. Ein kleiner
-  // Median-Fehler bei einem Bereich, der nie traf, ist keine Verlaesslichkeit
-  // - genau dieser Fall stand im Test auf dem Schirm und hiess "brauchbar".
-  // Vor der dritten Kontrolle gibt es keine Grundlage fuer "brauchbar" - und
-  // da jede Messung ab der dritten eine Kontrolle liefert, heisst das
-  // schlicht: wenige Messungen bleiben grob.
-  const elapsed = (now - e.last) / MINUTE;
+  // Guete heisst zweierlei, und beides muss stimmen: der Bereich muss halten
+  // *und* schmal genug sein, um darauf zu entscheiden. Seit er aus den
+  // eigenen Fehlern kommt, haelt er fast immer - ein Bereich von 0 bis 400
+  // trifft zuverlaessig und sagt nichts. Deshalb zaehlt jetzt seine Breite
+  // im Verhaeltnis zur vorhergesagten Menge.
   const fresh = elapsed < 180;
-  const relative = accuracy.checks ? accuracy.medianAbsError / Math.max(1, range.quantity) : Infinity;
-  const confidence = accuracy.checks >= 3 && fresh && relative <= 0.25 && accuracy.coverage >= 0.5
+  const width = (high - low) / Math.max(1, quantity);
+  const confidence = accuracy.checks >= MIN_CHECKS && fresh
+    && accuracy.coverage >= 0.5 && width <= 0.5
     ? 'brauchbar'
     : 'grob';
 
-  return { quantity: range.quantity, low, high, confidence, why: parts.join(', '), estimate: e, accuracy };
+  return {
+    quantity: Math.round(quantity),
+    low,
+    high,
+    confidence,
+    why: parts.join(', '),
+    model: choice,
+    estimate: e,
+    accuracy,
+  };
+}
+
+/** Guete des gewaehlten Modells, inklusive Treffer des angegebenen Bereichs. */
+function accuracyOf(residuals, band, horizon) {
+  if (!residuals.length) return { checks: 0, medianAbsError: null, worstAbsError: null, coverage: null };
+  const errors = residuals.map((r) => Math.abs(r.residual));
+  const covered = band
+    ? residuals.filter((r) => r.residual >= band.lowOffset && r.residual <= band.highOffset).length
+    : 0;
+  return {
+    checks: residuals.length,
+    medianAbsError: median(errors),
+    worstAbsError: Math.max(...errors),
+    coverage: band ? covered / residuals.length : null,
+    horizon,
+  };
+}
+
+/**
+ * Wahrscheinlichkeit, dass mindestens `units` Stueck dastehen.
+ *
+ * Aus derselben Fehlerverteilung wie der Bereich: jeder frueher gemessene
+ * Fehler ist ein Szenario fuer den kommenden. Damit sagen Bereich und
+ * Wahrscheinlichkeit dasselbe aus, statt zwei Rechnungen nebeneinander.
+ */
+export function chanceAtLeast(series, units, minutesAhead, now = Date.now()) {
+  const points = [...series].sort((a, b) => a[0] - b[0]);
+  if (points.length < 2) return null;
+
+  const results = evaluateModels(points);
+  const choice = chooseModelFor(results, points, minutesAhead, now);
+  const quantity = runModel(modelByKey(choice.key), points, minutesAhead, now);
+  if (quantity === null) return null;
+
+  const residuals = results.get(choice.key).residuals;
+  if (residuals.length < 3) return null;
+
+  const elapsed = Math.max(0, (now - points[points.length - 1][0]) / MINUTE);
+  const horizon = elapsed + Math.max(0, minutesAhead);
+  const near = residuals.filter((r) => r.horizon >= horizon / 3 && r.horizon <= horizon * 3);
+  const used = near.length >= 3 ? near : residuals;
+  const maxSeen = Math.max(...points.map((p) => p[1]));
+
+  const hits = used.filter((r) => {
+    const outcome = Math.max(0, Math.min(quantity + r.residual, maxSeen));
+    return outcome >= units;
+  }).length;
+  return hits / used.length;
+}
+
+/** Guete der Reihe unter dem gewaehlten Modell - fuer die Anzeige. */
+export function backtest(series = []) {
+  const points = [...series].sort((a, b) => a[0] - b[0]);
+  if (points.length < 3) return { checks: 0, medianAbsError: null, worstAbsError: null, coverage: null, model: null };
+
+  const results = evaluateModels(points);
+  const choice = chooseModel(results);
+  const residuals = results.get(choice.key).residuals;
+  const horizon = median(residuals.map((r) => r.horizon)) ?? 0;
+  return { ...accuracyOf(residuals, conformalInterval(residuals, horizon), horizon), model: choice };
 }
 
 // ---------- Speicher ----------
