@@ -1,12 +1,15 @@
-import { DEFAULTS } from './config.js?v=6';
-import { loadSettings, saveSettings, clearSettings, hasSavedSettings } from './storage.js?v=6';
-import { runFlipScan, runDollarScan, verifyWithTorn } from './scan.js?v=6';
-import { renderRows, renderHead, setStatus, installSorting, fmtMoney, showVersion } from './ui.js?v=6';
+import { DEFAULTS } from './config.js?v=7';
+import { loadSettings, saveSettings, clearSettings, hasSavedSettings } from './storage.js?v=7';
+import { runFlipScan, runDollarScan, verifyWithTorn } from './scan.js?v=7';
+import {
+  renderRows, renderHead, setStatus, installSorting, fmtMoneyShort, showVersion,
+} from './ui.js?v=7';
 
 const NUMERIC_FIELDS = new Set([
   'sellFactor', 'marketFeePct', 'prescreenPct', 'maxCandidates', 'listingsPerItem',
   'tradersPerItem', 'tradedWithinHours', 'minBuyerRating', 'minProfitAbs',
   'minProfitPct', 'maxBuyPrice', 'budget', 'autoRefreshSec',
+  'maxListingAgeHours', 'concurrency',
 ]);
 
 let currentRows = [];
@@ -50,11 +53,17 @@ function setProgress(pct) {
 }
 
 function dropReasons(stats, settings) {
-  if (settings.scanMode !== 'flip') return '';
   const parts = [];
-  if (stats.withoutBuyer) parts.push(`${stats.withoutBuyer} ohne aktiven Käufer`);
-  if (stats.buyerBelowRating) {
-    parts.push(`${stats.buyerBelowRating} nur unter Bewertung ${settings.minBuyerRating}`);
+  if (settings.scanMode === 'flip') {
+    if (stats.withoutBuyer) parts.push(`${stats.withoutBuyer} ohne aktiven Käufer`);
+    if (stats.buyerBelowRating) {
+      parts.push(`${stats.buyerBelowRating} nur unter Bewertung ${settings.minBuyerRating}`);
+    }
+  }
+  if (stats.filteredOut) {
+    // Ein zu strenger Frische- oder Preisfilter saehe sonst aus wie ein
+    // leerer Markt.
+    parts.push(`${stats.filteredOut} profitabel, aber über Alter oder Preisgrenze`);
   }
   return parts.length ? ` Davon ${parts.join(', ')}.` : '';
 }
@@ -64,9 +73,18 @@ function summarise(rows, stats, settings) {
   if (!rows.length) {
     return `Keine Treffer über den Filtern. ${stats.candidates} Kandidaten geprüft.${why}`;
   }
-  const total = rows.reduce((sum, r) => sum + r.totalProfit, 0);
-  return `${rows.length} Treffer aus ${stats.candidates} Kandidaten. `
-    + `Summe: ${fmtMoney(total)}.${why}`;
+
+  const buyable = rows.filter((r) => r.units > 0);
+  const total = buyable.reduce((sum, r) => sum + r.totalProfit, 0);
+  const spend = buyable.reduce((sum, r) => sum + r.spend, 0);
+  const overBudget = rows.length - buyable.length;
+  const rest = overBudget ? ` ${overBudget} weitere passen nicht ins Budget.` : '';
+
+  // Zahl zuerst: die Leiste ist auf dem Handy eine Zeile hoch und schneidet
+  // hinten ab. Der Einsatz gehoert direkt daneben - ein Profit von 4 Mio.
+  // heisst wenig, wenn 30 Mio. dafuer bereitliegen muessen.
+  return `Profit ${fmtMoneyShort(total)} bei ${fmtMoneyShort(spend)} Einsatz. `
+    + `${rows.length} Treffer aus ${stats.candidates} Kandidaten.${rest}${why}`;
 }
 
 async function runScan() {

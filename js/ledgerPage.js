@@ -1,21 +1,21 @@
-import { loadSettings, saveSettings } from './storage.js?v=6';
+import { loadSettings, saveSettings } from './storage.js?v=7';
 import {
   makeEvent, matchFifo, summarise, profitByItem,
   PERIODS, periodRange, filterByRange,
-} from './ledger.js?v=6';
+} from './ledger.js?v=7';
 import {
   loadEvents, saveEvents, addEvents, removeEvent, clearLedger,
   exportJson, parseImport, markExported, lastExport,
-} from './ledgerStore.js?v=6';
+} from './ledgerStore.js?v=7';
 import {
   fetchLog, fetchLogTypes, fetchLogCategories, deriveLogTypes, deriveCategories,
   inspect, TornLogError,
-} from './tornlog.js?v=6';
-import { reconstructTrades } from './tradelog.js?v=6';
-import { fetchMarketplace } from './weav3r.js?v=6';
-import { renderTable } from './table.js?v=6';
-import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=6';
-import { APP_VERSION } from './config.js?v=6';
+} from './tornlog.js?v=7';
+import { reconstructTrades } from './tradelog.js?v=7';
+import { fetchMarketplace } from './weav3r.js?v=7';
+import { renderTable } from './table.js?v=7';
+import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=7';
+import { APP_VERSION } from './config.js?v=7';
 
 let events = [];
 let pendingImport = [];

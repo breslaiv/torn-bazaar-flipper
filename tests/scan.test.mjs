@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runFlipScan, runDollarScan } from '../js/scan.js';
+import { runFlipScan, runDollarScan, poolSize } from '../js/scan.js';
 
 const settings = {
   referenceMode: 'trader',
@@ -132,4 +132,110 @@ test('Dollar-Scan filtert und sortiert nach Gesamtwert', async () => {
   assert.deepEqual(rows.map((r) => r.itemName), ['Gross', 'Klein']);
   assert.equal(rows[0].buy, 1);
   assert.equal(rows[0].totalProfit, 199990);
+});
+
+// ---------- Parallelitaet ----------
+
+const catalogOf = (n) => Array.from({ length: n }, (_, i) => ({
+  itemId: i + 1, itemName: `Item ${i + 1}`, marketPrice: 1000, lowestPrice: 500, totalBazaars: 3,
+}));
+
+/** Zaehlt, wie viele Abfragen zu einem Zeitpunkt gleichzeitig offen sind. */
+function tracking(delay = 5) {
+  const state = { open: 0, peak: 0, seen: [] };
+  const hold = async (id) => {
+    state.open += 1;
+    state.peak = Math.max(state.peak, state.open);
+    await new Promise((r) => setTimeout(r, delay));
+    state.open -= 1;
+  };
+  return {
+    state,
+    deps: {
+      fetchMarketplace: async () => ({ items: catalogOf(8), generatedAt: 0 }),
+      fetchItemListings: async (id) => {
+        state.seen.push(id);
+        await hold(id);
+        return { itemId: id, itemName: `Item ${id}`, marketPrice: 1000,
+          listings: [{ price: 500, quantity: 1, playerId: 7, playerName: 'S', sponsored: false }] };
+      },
+      fetchItemTraders: async (id) => {
+        await hold(id);
+        return { itemId: id, traders: [{ playerId: 8, playerName: 'B', price: 900, ratingScore: 0 }] };
+      },
+    },
+  };
+}
+
+test('poolSize bleibt in vernuenftigen Grenzen', () => {
+  assert.equal(poolSize({ concurrency: 4 }), 4);
+  assert.equal(poolSize({ concurrency: 99 }), 8, 'nach oben gedeckelt');
+  assert.equal(poolSize({ concurrency: 0 }), 1);
+  assert.equal(poolSize({}), 1, 'ohne Angabe seriell - so lief es vorher');
+  assert.equal(poolSize({ concurrency: 'drei' }), 1);
+});
+
+test('Kandidaten laufen parallel, aber nicht mehr als erlaubt', async () => {
+  const { state, deps } = tracking();
+  const { rows } = await runFlipScan({ ...settings, maxCandidates: 8, concurrency: 3 }, { deps });
+  assert.equal(rows.length, 8, 'jeder Kandidat kommt genau einmal an');
+  assert.equal(state.seen.length, 8);
+  assert.equal(new Set(state.seen).size, 8, 'keiner doppelt');
+  // Zwei Requests je Kandidat laufen ohnehin zusammen, drei Kandidaten
+  // gleichzeitig ergeben also bis zu sechs offene Abfragen.
+  assert.ok(state.peak > 2, `parallel gelaufen ist es nicht (Spitze ${state.peak})`);
+  assert.ok(state.peak <= 6, `zu viele gleichzeitig: ${state.peak}`);
+});
+
+test('seriell bleibt seriell', async () => {
+  const { state, deps } = tracking();
+  await runFlipScan({ ...settings, maxCandidates: 8, concurrency: 1 }, { deps });
+  assert.equal(state.peak, 2, 'nur die beiden Abfragen desselben Kandidaten');
+});
+
+test('ein Abbruch stoppt auch den parallelen Scan', async () => {
+  const controller = new AbortController();
+  const { state, deps } = tracking(20);
+  const promise = runFlipScan({ ...settings, maxCandidates: 8, concurrency: 2 }, {
+    deps, signal: controller.signal,
+  });
+  setTimeout(() => controller.abort(), 25);
+  const { rows } = await promise;
+  assert.ok(state.seen.length < 8, `es wurden trotzdem alle geholt: ${state.seen.length}`);
+  assert.ok(rows.length < 8);
+});
+
+test('das Budget wird ueber den ganzen Scan verteilt, nicht je Zeile', async () => {
+  const { deps: d } = deps({
+    catalog: [
+      { itemId: 1, itemName: 'A', marketPrice: 1000, lowestPrice: 500, totalBazaars: 3 },
+      { itemId: 2, itemName: 'B', marketPrice: 1000, lowestPrice: 600, totalBazaars: 3 },
+    ],
+    listings: {
+      1: [{ price: 500, quantity: 10, playerId: 7, playerName: 'S', sponsored: false }],
+      2: [{ price: 600, quantity: 10, playerId: 7, playerName: 'S', sponsored: false }],
+    },
+    traders: {
+      1: [{ playerId: 8, playerName: 'B', price: 900, ratingScore: 0 }],
+      2: [{ playerId: 8, playerName: 'B', price: 900, ratingScore: 0 }],
+    },
+  });
+
+  const { rows } = await runFlipScan({ ...settings, budget: 5000 }, { deps: d });
+  const spend = rows.reduce((s, r) => s + r.spend, 0);
+  assert.ok(spend <= 5000, `Einsatz ${spend} ueber Budget`);
+  const profit = rows.reduce((s, r) => s + r.totalProfit, 0);
+  assert.equal(profit, 4000, '10 Stueck der besseren Zeile zu 400 Profit');
+});
+
+test('profitable Zeilen, die am Alter scheitern, werden gezaehlt', async () => {
+  const alt = Date.now() - 200 * 3600e3;
+  const { deps: d } = deps({
+    catalog: [{ itemId: 1, itemName: 'Alt', marketPrice: 1000, lowestPrice: 500, totalBazaars: 3 }],
+    listings: { 1: [{ price: 500, quantity: 2, playerId: 7, playerName: 'S', sponsored: false, contentUpdated: alt }] },
+    traders: { 1: [{ playerId: 8, playerName: 'B', price: 900, ratingScore: 0 }] },
+  });
+  const { rows, stats } = await runFlipScan({ ...settings, maxListingAgeHours: 48 }, { deps: d });
+  assert.equal(rows.length, 0);
+  assert.equal(stats.filteredOut, 1, 'sonst sieht ein strenger Filter aus wie ein leerer Markt');
 });

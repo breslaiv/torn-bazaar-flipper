@@ -1,10 +1,27 @@
-import { APP_VERSION } from './config.js?v=6';
+import { APP_VERSION } from './config.js?v=7';
+import { fmtAge } from './freshness.js?v=7';
 
 const money = new Intl.NumberFormat('en-US');
 
 export function fmtMoney(n) {
   if (!Number.isFinite(n)) return '—';
   return `${n < 0 ? '-' : ''}$${money.format(Math.round(Math.abs(n)))}`;
+}
+
+/**
+ * Kurzform fuer die Statusleiste. Die ist auf dem Handy bewusst eine Zeile
+ * hoch und schneidet den Rest ab - "$7.17M" passt, "$7,174,400" draengt die
+ * Haelfte des Satzes aus dem Bild.
+ */
+export function fmtMoneyShort(n) {
+  if (!Number.isFinite(n)) return '—';
+  const abs = Math.abs(n);
+  const sign = n < 0 ? '-' : '';
+  const cut = (value, unit) => `${sign}$${Number(value.toFixed(value < 10 ? 2 : 1))}${unit}`;
+  if (abs >= 1e9) return cut(abs / 1e9, 'B');
+  if (abs >= 1e6) return cut(abs / 1e6, 'M');
+  if (abs >= 10000) return `${sign}$${Math.round(abs / 1000)}k`;
+  return fmtMoney(n);
 }
 
 export function fmtPct(n) {
@@ -31,7 +48,8 @@ export const COLUMNS = [
   { key: 'sellNet', label: 'Netto', type: 'money' },
   { key: 'profitPerUnit', label: 'Profit/Stück', type: 'money', profit: true, strong: true },
   { key: 'profitPct', label: 'Marge', type: 'pct', profit: true },
-  { key: 'units', label: 'Menge', type: 'count' },
+  { key: 'units', label: 'Menge', type: 'units' },
+  { key: 'listingAgeHours', label: 'Alter', type: 'age' },
   { key: 'totalProfit', label: 'Gesamt', type: 'money', profit: true, strong: true },
 ];
 
@@ -51,6 +69,7 @@ export function itemUrl(template, itemId) {
 function tags(row) {
   const out = [];
   if (row.sponsored) out.push('<span class="tag">gesponsert</span>');
+  if (row.overBudget) out.push('<span class="tag">über Budget</span>');
   if (row.suspicious) out.push('<span class="tag warn">prüfen</span>');
   if (Number.isFinite(row.itemMarketLow)) {
     out.push(`<span class="tag">IM ${fmtMoney(row.itemMarketLow)}</span>`);
@@ -84,7 +103,12 @@ function cellContent(col, row, opts) {
       if (row.buyerRating === null) return link;
       const cls = row.buyerRating >= 0 ? 'ok' : 'warn';
       const sign = row.buyerRating >= 0 ? '+' : '';
-      return `${link}<span class="tag ${cls}">${sign}${row.buyerRating}</span>`;
+      // Wie lange der Kaeufer nichts getan hat: ein Trade an jemanden, der
+      // seit Tagen offline ist, bleibt liegen.
+      const idle = Number.isFinite(row.buyerIdleHours)
+        ? `<span class="tag${row.buyerIdleHours > 24 ? ' warn' : ''}">${escapeHtml(fmtAge(row.buyerIdleHours))}</span>`
+        : '';
+      return `${link}<span class="tag ${cls}">${sign}${row.buyerRating}</span>${idle}`;
     }
     case 'money':
       return fmtMoney(row[col.key]);
@@ -92,6 +116,22 @@ function cellContent(col, row, opts) {
       return fmtPct(row[col.key]);
     case 'count':
       return money.format(row[col.key]);
+    case 'units': {
+      // Der Einsatz gehoert an die Menge: erst beides zusammen sagt, ob die
+      // Zeile ueberhaupt bezahlbar ist.
+      const units = money.format(row.units);
+      return Number.isFinite(row.spend) && row.units > 0
+        ? `${units}<span class="tag">${fmtMoney(row.spend)}</span>`
+        : units;
+    }
+    case 'age': {
+      const hours = row.listingAgeHours;
+      if (!Number.isFinite(hours)) return '<span class="muted">?</span>';
+      // Ab drei Tagen ist ein Listing oft schon verkauft und nur noch im
+      // Crawl vorhanden.
+      const cls = hours > 72 ? ' warn' : '';
+      return `<span class="age${cls}">${escapeHtml(fmtAge(hours))}</span>`;
+    }
     default:
       return escapeHtml(row[col.key] ?? '');
   }

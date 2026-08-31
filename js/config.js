@@ -1,7 +1,7 @@
 // Bei jeder Aenderung hochzaehlen und danach tools/version-assets.py laufen
 // lassen: der Stempel haengt an jedem Import und macht eine neue Fassung zu
 // einer eigenen URL. Ohne ihn liefert der Browser tagelang den alten Stand.
-export const APP_VERSION = '6';
+export const APP_VERSION = '7';
 
 // Zentrale Konfiguration. Alles hier ist ueber die Einstellungen im UI
 // ueberschreibbar und landet dann in localStorage.
@@ -41,6 +41,14 @@ export const DEFAULTS = {
   listingsPerItem: 20,
   tradersPerItem: 10,
   tradedWithinHours: 48,       // 0 = kein Zeitfilter
+  // Wie alt ein Bazaar-Listing sein darf, in Stunden. 0 = kein Limit.
+  // Bewusst aus als Vorgabe: ob und wie weav3r content_updated fuellt, laesst
+  // sich nur an echten Daten sehen. Die Spalte "Alter" zeigt es zuerst; wer
+  // dort brauchbare Werte sieht, kann den Filter dann setzen.
+  maxListingAgeHours: 0,
+  // Wie viele Kandidaten gleichzeitig geprueft werden. Das Rate-Limit bleibt
+  // davon unberuehrt, nur die Wartezeit auf Antworten ueberlappt sich.
+  concurrency: 4,
   // Upvotes minus Downvotes, wie im Chip neben dem Kaeufer. 0 entspricht dem
   // frueheren "keine negativ bewerteten Kaeufer"; negative Werte lassen auch
   // schlecht bewertete zu.

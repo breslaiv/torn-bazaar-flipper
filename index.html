@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bazaar Flip">
 <meta name="format-detection" content="telephone=no">
-<meta name="app-build" content="6">
+<meta name="app-build" content="7">
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'none';
   script-src 'self';
@@ -83,6 +83,11 @@
         <input type="number" id="maxCandidates" min="1" max="45" step="1">
         <span class="hint">Kostet 2 Requests pro Stück. weav3r erlaubt 100/Minute.</span>
       </label>
+      <label class="field">Parallele Abfragen
+        <input type="number" id="concurrency" min="1" max="8" step="1">
+        <span class="hint">Wie viele Kandidaten gleichzeitig geprüft werden. Das Rate-Limit
+          bleibt gleich, der Scan wartet nur nicht mehr auf jede Antwort einzeln.</span>
+      </label>
       <label class="field" data-flip-only>Listings pro Item
         <input type="number" id="listingsPerItem" min="1" max="100" step="1">
       </label>
@@ -92,6 +97,12 @@
       <label class="field" data-flip-only>Käufer aktiv seit (Stunden)
         <input type="number" id="tradedWithinHours" min="0" max="168" step="1">
         <span class="hint">Nur Käufer mit Handel in diesem Zeitraum. 0 = kein Filter.</span>
+      </label>
+      <label class="field">Listing höchstens (Stunden) alt
+        <input type="number" id="maxListingAgeHours" min="0" max="720" step="1">
+        <span class="hint">weav3r sieht Bazaare per Crawl; alte Listings sind oft schon
+          verkauft. Die Spalte <em>Alter</em> zeigt den Wert. 0 = kein Filter, und Zeilen
+          ohne verwertbaren Zeitstempel bleiben immer drin.</span>
       </label>
       <label class="field" data-flip-only>Mindestbewertung Käufer
         <input type="number" id="minBuyerRating" step="1">
@@ -175,6 +186,6 @@
   <span id="status"></span>
 </div>
 
-<script type="module" src="js/app.js?v=6"></script>
+<script type="module" src="js/app.js?v=7"></script>
 </body>
 </html>

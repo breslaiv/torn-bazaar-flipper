@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   prescreen, pickBuyer, minRating, buildFlipRows, buildDollarRows, passesFilters, sortByTotalProfit,
+  allocateBudget,
 } from '../js/profit.js';
 
 const base = {
@@ -29,11 +30,49 @@ test('prescreen nimmt nur Items unter der Rabattschwelle', () => {
   assert.deepEqual(out.map((i) => i.itemId), [1, 2]);
 });
 
-test('prescreen sortiert nach absoluter Spanne und deckelt die Anzahl', () => {
+test('prescreen sortiert nach erwartetem Profit und deckelt die Anzahl', () => {
   const out = prescreen(catalog, { ...base, maxCandidates: 1 });
   assert.equal(out.length, 1);
   assert.equal(out[0].itemId, 1);
-  assert.equal(out[0].gap, 400000);
+  assert.equal(out[0].expectedProfit, 400000);
+});
+
+test('prescreen verschenkt keinen Platz an Items, die die Filter reissen', () => {
+  // Der teure Kandidat hat die groessere Spanne, aber nur 4% Marge; der
+  // billige haette 100%. Nach reiner Spanne belegte der teure den einzigen
+  // Platz und der echte Flip wuerde nie geprueft.
+  const items = [
+    { itemId: 10, itemName: 'Teuer, duenn', marketPrice: 10000000, lowestPrice: 9600000, totalBazaars: 3 },
+    { itemId: 11, itemName: 'Billig, fett', marketPrice: 100000, lowestPrice: 50000, totalBazaars: 3 },
+  ];
+  // Rabattschwelle weit offen, damit hier wirklich die Reihenfolge zur
+  // Debatte steht und nicht schon die Vorauswahl davor.
+  const weit = { ...base, prescreenPct: 99, maxCandidates: 1 };
+  assert.deepEqual(prescreen(items, { ...weit, minProfitPct: 10 }).map((i) => i.itemId), [11]);
+
+  // Ohne Margenfilter gewinnt weiterhin der absolute Profit - dann ist die
+  // duenne Marge ja auch erlaubt.
+  assert.deepEqual(prescreen(items, weit).map((i) => i.itemId), [10]);
+});
+
+test('prescreen misst am selben Netto wie die spaetere Zeile', () => {
+  // Sicherheitsabschlag von 20%: aus 1.000.000 Marktpreis werden 800.000
+  // erwarteter Erloes, also 200.000 statt 400.000 erwarteter Profit.
+  const [erste] = prescreen(catalog, { ...base, sellFactor: 80 });
+  assert.equal(erste.expectedProfit, 200000);
+
+  // Und wer damit unter die Schwelle faellt, kostet keinen Request mehr.
+  const streng = prescreen(catalog, { ...base, sellFactor: 80, minProfitAbs: 250000 });
+  assert.deepEqual(streng.map((i) => i.itemId), []);
+});
+
+test('prescreen schaetzt eher zu guenstig als zu streng', () => {
+  // Der Marktpreis steht nur als Platzhalter fuer den Ankaufspreis eines
+  // Kaeufers, und Kaeufer zahlen darunter. Ein Kandidat, der die Schwelle
+  // gegen den Marktpreis genau erreicht, muss also drin bleiben.
+  const items = [{ itemId: 12, itemName: 'Grenzfall', marketPrice: 100000, lowestPrice: 90000, totalBazaars: 1 }];
+  const out = prescreen(items, { ...base, prescreenPct: 90, minProfitAbs: 10000 });
+  assert.deepEqual(out.map((i) => i.itemId), [12]);
 });
 
 test('prescreen respektiert den maximalen Kaufpreis', () => {
@@ -163,4 +202,55 @@ test('sortByTotalProfit ordnet absteigend', () => {
     { totalProfit: 90, profitPerUnit: 9 },
   ]);
   assert.deepEqual(sorted.map((r) => r.totalProfit), [90, 10]);
+});
+
+// ---------- Budget ----------
+
+const flip = (id, buy, quantity, profitPerUnit) => ({
+  itemId: id, itemName: `Item ${id}`, buy, quantity, profitPerUnit,
+  units: quantity, spend: buy * quantity, totalProfit: profitPerUnit * quantity,
+});
+
+test('ohne Budget bleibt alles wie es ist', () => {
+  const rows = [flip(1, 100, 5, 50)];
+  assert.equal(allocateBudget(rows, 0), rows, 'dieselbe Liste, nicht nur derselbe Inhalt');
+});
+
+test('das Budget wird ueber alle Zeilen verteilt statt jeder Zeile ganz zugestanden', () => {
+  // Vorher rechnete jede Zeile mit den vollen 1000 und die Summe oben gab
+  // dasselbe Geld dreimal aus.
+  const rows = [flip(1, 100, 10, 50), flip(2, 100, 10, 40)];
+  const out = allocateBudget(rows, 1000);
+  const spend = out.reduce((s, r) => s + r.spend, 0);
+  assert.ok(spend <= 1000, `Einsatz ${spend} darf das Budget nicht ueberschreiten`);
+  assert.equal(out[0].units, 10, 'die bessere Zeile zuerst');
+  assert.equal(out[1].units, 0);
+  assert.equal(out[1].totalProfit, 0);
+  assert.equal(out[1].overBudget, true, 'sonst sieht Menge 0 nach einem Rechenfehler aus');
+});
+
+test('zugeteilt wird nach Rendite je Dollar, nicht nach absolutem Gewinn', () => {
+  // Die teure Zeile bringt pro Stueck mehr, bindet aber das ganze Budget.
+  // Mit 1000 Dollar sind 10x50 mehr wert als 1x200.
+  const teuer = flip(1, 1000, 5, 200);
+  const guenstig = flip(2, 100, 10, 50);
+  const out = allocateBudget([teuer, guenstig], 1000);
+  const byId = new Map(out.map((r) => [r.itemId, r]));
+  assert.equal(byId.get(2).units, 10);
+  assert.equal(byId.get(1).units, 0);
+  assert.equal(out.reduce((s, r) => s + r.totalProfit, 0), 500);
+});
+
+test('Restgeld fliesst in die naechste bezahlbare Zeile', () => {
+  const out = allocateBudget([flip(1, 300, 3, 100), flip(2, 50, 4, 10)], 1000);
+  const byId = new Map(out.map((r) => [r.itemId, r]));
+  assert.equal(byId.get(1).units, 3, '900 von 1000');
+  assert.equal(byId.get(2).units, 2, 'die restlichen 100');
+  assert.equal(out.reduce((s, r) => s + r.spend, 0), 1000);
+});
+
+test('die Reihenfolge der Liste bleibt erhalten', () => {
+  // Sortiert wird spaeter im UI; allocateBudget darf die Liste nicht umbauen.
+  const out = allocateBudget([flip(1, 100, 1, 10), flip(2, 10, 1, 5)], 50);
+  assert.deepEqual(out.map((r) => r.itemId), [1, 2]);
 });

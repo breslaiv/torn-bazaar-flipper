@@ -138,6 +138,10 @@ td.num { font-family: var(--mono); }
 .tag.warn { color: var(--warn); border-color: #5b4a1a; }
 .tag.ok { color: var(--good); border-color: #1f5133; }
 
+/* Alter eines Listings: ab drei Tagen liegt die Ware oft nur noch im Crawl. */
+.age.warn { color: var(--warn); }
+.muted { color: var(--muted); }
+
 .table-wrap { overflow-x: auto; max-height: 70vh; overflow-y: auto; }
 
 pre.raw {

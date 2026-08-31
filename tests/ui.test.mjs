@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   COLUMNS, headToHtml, rowsToHtml, sortOptionsToHtml, sortRows, itemUrl,
-  fmtMoney, fmtPct, escapeHtml,
+  fmtMoney, fmtPct, escapeHtml, fmtMoneyShort,
 } from '../js/ui.js';
 
 const W3B = { itemUrlTemplate: 'https://weav3r.dev/marketplace/{ITEM_ID}' };
@@ -160,4 +160,49 @@ test('Marker stehen weiterhin neben dem verlinkten Namen', () => {
   const html = rowsToHtml([{ ...row, sponsored: true }], W3B);
   assert.match(html, /item-link/);
   assert.match(html, /gesponsert/);
+});
+
+test('fmtMoneyShort haelt die Statusleiste in einer Zeile', () => {
+  // Die Leiste schneidet auf dem Handy hinten ab; lange Zahlen kosten den
+  // halben Satz.
+  assert.equal(fmtMoneyShort(7174400), '$7.17M');
+  assert.equal(fmtMoneyShort(25125600), '$25.1M');
+  assert.equal(fmtMoneyShort(348000), '$348k');
+  assert.equal(fmtMoneyShort(1500000000), '$1.5B');
+  assert.equal(fmtMoneyShort(-2400000), '-$2.4M');
+  assert.equal(fmtMoneyShort(9500), '$9,500', 'kleine Betraege bleiben genau');
+  assert.equal(fmtMoneyShort(NaN), '—');
+});
+
+test('die Alter-Spalte trennt "unbekannt" von "alt"', () => {
+  const row = (extra) => ({
+    itemId: 1, itemName: 'X', buy: 1, quantity: 1, units: 1, spend: 1,
+    profitPerUnit: 1, profitPct: 1, totalProfit: 1, sellNet: 2, reference: 2, ...extra,
+  });
+  const html = (extra) => rowsToHtml([row(extra)], {});
+
+  assert.match(html({ listingAgeHours: 10 }), /class="age">10 h</);
+  // Ab drei Tagen liegt die Ware oft nur noch im Crawl.
+  assert.match(html({ listingAgeHours: 100 }), /class="age warn">4 d</);
+  // Kein Zeitstempel ist keine Aussage ueber das Alter - und darf deshalb
+  // auch nicht wie "frisch" aussehen.
+  assert.match(html({ listingAgeHours: null }), /class="muted">\?</);
+});
+
+test('die Menge nennt den noetigen Einsatz mit', () => {
+  const row = {
+    itemId: 1, itemName: 'X', buy: 5000, quantity: 8, units: 8, spend: 40000,
+    profitPerUnit: 1, profitPct: 1, totalProfit: 8, sellNet: 2, reference: 2,
+  };
+  assert.match(rowsToHtml([row], {}), /8<span class="tag">\$40,000<\/span>/);
+  // Ohne Menge waere der Einsatz null und die Angabe nur Ballast.
+  assert.doesNotMatch(rowsToHtml([{ ...row, units: 0, spend: 0 }], {}), /class="tag">\$0</);
+});
+
+test('eine Zeile ausserhalb des Budgets sagt das auch', () => {
+  const row = {
+    itemId: 1, itemName: 'X', buy: 5000, quantity: 8, units: 0, spend: 0,
+    profitPerUnit: 1, profitPct: 1, totalProfit: 0, sellNet: 2, reference: 2, overBudget: true,
+  };
+  assert.match(rowsToHtml([row], {}), /über Budget/);
 });

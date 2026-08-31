@@ -1,10 +1,42 @@
 // Ablauf eines Scans. Getrennt vom UI, damit er testbar bleibt.
 
-import { fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js?v=6';
-import { fetchItemMarketLow } from './torn.js?v=6';
-import { prescreen, pickBuyer, buildFlipRows, buildDollarRows, passesFilters, sortByTotalProfit } from './profit.js?v=6';
+import { fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js?v=7';
+import { fetchItemMarketLow } from './torn.js?v=7';
+import {
+  prescreen, pickBuyer, buildFlipRows, buildDollarRows, passesFilters, sortByTotalProfit,
+  allocateBudget,
+} from './profit.js?v=7';
 
 const noop = () => {};
+
+/** Wie viele Kandidaten gleichzeitig geprueft werden. */
+export function poolSize(settings) {
+  const n = Math.floor(Number(settings?.concurrency));
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return Math.min(n, 8);
+}
+
+/**
+ * Arbeitet eine Liste mit begrenzt vielen gleichzeitigen Aufgaben ab.
+ *
+ * Vorher lief jeder Kandidat einzeln: 35 Kandidaten sind 70 Requests
+ * nacheinander, und jeder wartet die volle Laufzeit des vorigen ab. Das
+ * Rate-Limit greift weiterhin - der Limiter in weav3r.js zaehlt die Requests
+ * unabhaengig davon, wer sie ausloest -, aber die Wartezeit auf Antworten
+ * ueberlappt sich jetzt.
+ */
+async function eachLimited(items, limit, worker) {
+  let next = 0;
+  const run = async () => {
+    for (;;) {
+      const index = next;
+      next += 1;
+      if (index >= items.length) return;
+      await worker(items[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
+}
 
 /**
  * Bazaar -> privater Kaeufer.
@@ -27,6 +59,7 @@ export async function runFlipScan(settings, { onProgress = noop, signal, deps = 
     candidates: candidates.length,
     withoutBuyer: 0,
     buyerBelowRating: 0,
+    filteredOut: 0,
     generatedAt,
   };
 
@@ -35,15 +68,16 @@ export async function runFlipScan(settings, { onProgress = noop, signal, deps = 
   }
 
   const rows = [];
-  for (let i = 0; i < candidates.length; i++) {
-    if (signal?.aborted) break;
-    const candidate = candidates[i];
+  let done = 0;
+
+  await eachLimited(candidates, poolSize(settings), async (candidate) => {
+    if (signal?.aborted) return;
 
     onProgress({
       phase: 'detail',
-      done: i,
+      done,
       total: candidates.length,
-      text: `Prüfe ${candidate.itemName} (${i + 1}/${candidates.length})…`,
+      text: `Prüfe ${candidate.itemName} (${done + 1}/${candidates.length})…`,
     });
 
     let listingsRes;
@@ -54,11 +88,13 @@ export async function runFlipScan(settings, { onProgress = noop, signal, deps = 
         api.fetchItemTraders(candidate.itemId, settings, { signal }),
       ]);
     } catch (err) {
-      if (err.name === 'AbortError') break;
+      done += 1;
+      if (err.name === 'AbortError') return;
       // Ein einzelnes Item darf den Scan nicht abbrechen.
       console.warn(`Item ${candidate.itemId} übersprungen:`, err.message);
-      continue;
+      return;
     }
+    done += 1;
 
     // Getrennt zaehlen: "gibt keinen Kaeufer" und "alle unter der
     // Mindestbewertung" sind verschiedene Gruende, und nur der zweite laesst
@@ -76,10 +112,17 @@ export async function runFlipScan(settings, { onProgress = noop, signal, deps = 
 
     for (const row of itemRows) {
       if (passesFilters(row, settings)) rows.push(row);
+      else if (row.profitPerUnit >= Number(settings.minProfitAbs) && row.profitPct >= Number(settings.minProfitPct)) {
+        // Profitabel, aber an Alter oder Preisgrenze gescheitert. Ohne diese
+        // Zahl sieht ein zu strenger Frische-Filter wie ein leerer Markt aus.
+        stats.filteredOut += 1;
+      }
     }
-  }
+  });
 
-  return { rows: sortByTotalProfit(rows), stats };
+  // Erst wenn alle Zeilen feststehen, laesst sich das Budget sinnvoll
+  // verteilen - vorher weiss keine Zeile, welche besseren es noch gibt.
+  return { rows: sortByTotalProfit(allocateBudget(rows, settings.budget)), stats };
 }
 
 /** $1-Bazaare: alles, was fuer einen Dollar zu haben ist. */
@@ -98,8 +141,14 @@ export async function runDollarScan(settings, { onProgress = noop, signal, deps 
 
   const rows = buildDollarRows(collected, settings).filter((r) => passesFilters(r, settings));
   return {
-    rows: sortByTotalProfit(rows),
-    stats: { catalogSize: collected.length, candidates: collected.length, withoutBuyer: 0, buyerBelowRating: 0 },
+    rows: sortByTotalProfit(allocateBudget(rows, settings.budget)),
+    stats: {
+      catalogSize: collected.length,
+      candidates: collected.length,
+      withoutBuyer: 0,
+      buyerBelowRating: 0,
+      filteredOut: 0,
+    },
   };
 }
 

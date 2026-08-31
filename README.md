@@ -13,17 +13,34 @@ den letzten 48 Stunden online waren.
 
 ```
 1 Request   GET /marketplace                     alle Items: Marktpreis, billigstes Listing
-            ↓ Vorauswahl: billigstes Listing ≤ X% des Marktpreises, nach Spanne sortiert
+            ↓ Vorauswahl: billigstes Listing ≤ X% des Marktpreises,
+            ↓ nach erwartetem Profit sortiert, Filter schon hier angelegt
 2N Requests GET /marketplace/{id}                Bazaar-Listings, günstigste zuerst
             GET /marketplace/{id}/traders        Käufer, höchster Ankaufspreis zuerst
+            ↓ mehrere Kandidaten gleichzeitig (Einstellung *Parallele Abfragen*)
 
 Profit/Stück = Ankaufspreis × Sicherheitsabschlag − Bazaar-Preis
-Gesamtprofit = Profit/Stück × min(verfügbare Menge, Budget / Bazaar-Preis)
+Gesamtprofit = Profit/Stück × zugeteilte Menge   (Budget über alle Zeilen verteilt)
 ```
 
 Die Vorauswahl ist nötig, weil jeder Kandidat zwei Requests kostet und Cloudflare bei
 100 Aufrufen/Minute dichtmacht. Bei 35 Kandidaten sind das 71 Requests pro Scan; der Client
 drosselt selbst auf 80/Minute.
+
+**Gemessen wird an derselben Rechnung wie später die Zeile**, nur mit dem Marktpreis als
+Platzhalter für den Ankaufspreis. Wer die Profit- und Margenschwelle schon dagegen reißt,
+kann sie gegen einen realen Käufer erst recht nicht halten — Käufer zahlen unter Markt, nicht
+darüber. Der Platzhalter schätzt also zu günstig, und das ist die richtige Richtung: lieber
+ein Kandidat zu viel als ein echter Flip, der nie geprüft wird. Sortiert wird nach diesem
+erwarteten Profit statt nach der nackten Preisspanne; nach Spanne gewinnen sonst teure Items
+mit ein paar Prozent Rabatt, und billige Items mit 40% Marge fallen aus den Kandidaten heraus,
+obwohl genau sie die Filter bestehen würden.
+
+**Die Kandidaten laufen parallel.** Vorher wartete jeder auf den vorigen: 35 Kandidaten sind
+70 Requests hintereinander. Der Rate-Limiter zählt weiterhin jeden Request — er sitzt im
+Client, nicht im Ablauf —, nur die Wartezeit auf Antworten überlappt sich. Mit vier
+gleichzeitigen Kandidaten dauert ein Scan im Test etwa ein Drittel so lang. Wer auf Nummer
+sicher gehen will, stellt *Parallele Abfragen* auf 1; dann läuft es wie zuvor.
 
 **Zweiter Modus: $1-Bazaare.** `/dollar-bazaars/items` listet Items, die für einen Dollar
 im Bazaar stehen — der Kaufpreis ist per Definition 1, der Profit praktisch der volle
@@ -35,6 +52,15 @@ Marktwert. Diese Listings sind aus `/marketplace/{id}` bewusst ausgeschlossen un
 **Gesponserte Zeilen.** Sowohl bei Listings als auch bei Tradern hängt die API einen
 bezahlten Eintrag vorne an, unabhängig vom Preis. Wer die Liste für sortiert hält, kauft
 teurer als nötig. Der Client sortiert selbst nach und markiert die Zeile als `gesponsert`.
+
+**Alte Listings sind oft schon verkauft.** weav3r sieht die Bazaare per Crawl; `content_updated`
+sagt, wann ein Listing zuletzt bestätigt wurde. Die Spalte *Alter* zeigt es, und *Listing
+höchstens (Stunden) alt* wirft zu alte Zeilen raus. In welchem Format der Zeitstempel kommt,
+legt die Spec nicht fest — der Client liest Unix-Sekunden, Millisekunden und ISO-Strings, und
+was er nicht deuten kann, gilt als **unbekannt**, nicht als uralt. Unbekanntes Alter fällt
+deshalb nie durch den Filter: ein Fehlgriff beim Format würde sonst stillschweigend jede Zeile
+aussortieren. Beim Käufer steht daneben, wie lange er nichts getan hat — ein Trade an jemanden,
+der seit Tagen offline ist, bleibt liegen.
 
 **Der höchste Preis ist nicht das beste Angebot.** Ein Käufer mit 6 Downvotes, der 10.000
 mehr bietet, ist kein Fortschritt. Unter *Mindestbewertung Käufer* steht die Untergrenze
@@ -360,7 +386,7 @@ Skript das PNG direkt.
 Ein Hinweis zur Ehrlichkeit: sperrst du das Telefon mitten im Scan, hält iOS die Seite an.
 Der Scan läuft weiter, sobald du zurückkommst, aber er wird dadurch langsamer. Bei
 ungeduldiger Nutzung lohnt es, *Max. Kandidaten* zu senken — 20 statt 35 halbiert die
-Laufzeit.
+Laufzeit. Seit die Kandidaten parallel laufen, fällt das weniger ins Gewicht.
 
 
 ## Hosting auf GitHub Pages
@@ -400,7 +426,8 @@ js/config.js        APP_VERSION, Defaults, Basis-URLs, Rate-Limits
 js/ratelimit.js     Gleitendes 60-Sekunden-Fenster, je Host eine Instanz
 js/weav3r.js        TornW3B-Client: Katalog, Listings, Trader, $1-Bazaare
 js/torn.js          Torn API v2, optional, nur für die Item-Market-Gegenprobe
-js/profit.js        Vorauswahl, Käuferwahl, Profit-Rechnung, Filter
+js/profit.js        Vorauswahl, Käuferwahl, Profit-Rechnung, Budget, Filter
+js/freshness.js     Alter von Listings und Käufern aus uneinheitlichen Zeitstempeln
 js/scan.js          Ablauf eines Scans, abbrechbar, mit Fortschrittsmeldung
 js/storage.js       localStorage
 js/ui.js            Spaltendefinition, Tabelle/Karten, Sortierung
@@ -426,9 +453,10 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-168 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
-Markup, Sortierung, Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung und Persistenz sowie
-die Key-, CSP-, Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
+201 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
+Parallelität und Abbruch, Zeitstempel-Deutung, Scan-Ablauf, Markup, Sortierung,
+Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung und Persistenz sowie die Key-, CSP-,
+Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
 
 Der Sortier-Controller wird gegen einen kleinen DOM-Stub getestet (`tests/sorting.test.mjs`),
 weil dort ein Fehler saß, den die reine Sortierfunktion nicht zeigen konnte.
@@ -439,7 +467,14 @@ weil dort ein Fehler saß, den die reine Sortierfunktion nicht zeigen konnte.
   weg als der Cache alt ist — die Liste ist ein Vorschlag, keine Garantie.
 - Wie viel ein Käufer tatsächlich abnimmt, steht in keiner API. Die Mengenspalte zeigt, was
   im Bazaar liegt und was das Budget hergibt, nicht was der Käufer abnehmen will.
+- Das Budget wird über alle Treffer verteilt, nach Profit je eingesetztem Dollar. Die Summe
+  in der Statusleiste ist damit erreichbar — vorher rechnete jede Zeile für sich mit dem
+  vollen Budget und die Summe gab dasselbe Geld mehrfach aus. Zeilen, für die nichts übrig
+  bleibt, stehen als *über Budget* mit Menge 0 in der Liste.
 - Ankaufspreise stammen aus der Pricelist des Käufers zum Abfragezeitpunkt. Vor einem großen
   Trade lohnt eine kurze Rückfrage.
-- Die Vorauswahl sortiert nach absoluter Spanne. Wer lieber auf Marge optimiert, setzt
-  „Kandidat ab Rabatt" niedriger und filtert über die Mindest-Marge.
+- Die Vorauswahl misst mit dem Marktpreis als Platzhalter für den Ankaufspreis. Sie schätzt
+  damit zu günstig; ein Kandidat kann die Schwellen also bestehen und die fertige Zeile
+  trotzdem reißen. Andersherum geht nichts verloren.
+- *Parallele Abfragen* verkürzt nur die Wartezeit, nicht die Zahl der Requests. Wer das
+  Minutenlimit reißt, senkt *Max. Kandidaten* — nicht die Parallelität.
