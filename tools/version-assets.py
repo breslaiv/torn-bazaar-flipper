@@ -45,10 +45,15 @@ def stamp_js(version):
 
 def stamp_html(version):
     pattern = re.compile(r"""(<script[^>]*\ssrc=")([^"?]+\.js)(\?v=[^"]*)?(")""")
+    # Die HTML traegt den Build zusaetzlich als meta. Sie bestimmt, welche
+    # ?v=-URLs geladen werden - stimmt sie nicht mit APP_VERSION der geladenen
+    # Module ueberein, laeuft ein Mischzustand aus Cache und Server.
+    meta = re.compile(r'(<meta name="app-build" content=")([^"]*)(">)')
     changed = []
     for path in sorted(ROOT.glob('*.html')):
         text = path.read_text(encoding='utf-8')
         new = pattern.sub(lambda m: f"{m.group(1)}{m.group(2)}?v={version}{m.group(4)}", text)
+        new = meta.sub(lambda m: f"{m.group(1)}{version}{m.group(3)}", new)
         if new != text:
             path.write_text(new, encoding='utf-8')
             changed.append(path.name)

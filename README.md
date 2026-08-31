@@ -228,8 +228,18 @@ python3 tools/version-assets.py     # nach dem Hochzählen von APP_VERSION in js
 sonst wäre die Lücke genau dort, wo man sie nicht sucht.
 
 Jede Seite zeigt den Build oben im Kopf, und der Importbericht trägt ihn als erste Zeile.
-Damit lässt sich „geht immer noch nicht" in einem Blick auflösen: steht dort ein alter
-Build, ist es der Cache und nicht der Code.
+
+**Der Stempel allein reicht nicht.** Er bustet den Browser-Cache, aber der Server ignoriert
+den Query-Parameter und liefert unter `config.js?v=2` trotzdem die *neue* Datei. Wird ein
+Modul aus dem Cache verdrängt und ein anderes nicht, mischen sich die Stände — einmal stand
+oben „Build 3", während die Logik noch die von Build 2 war. Ein Etikett, das lügt, ist
+schlimmer als keins.
+
+Deshalb trägt jede Seite den Build zusätzlich als `<meta name="app-build">`. Die HTML
+bestimmt, welche `?v=`-URLs geladen werden; `APP_VERSION` kommt aus einem geladenen Modul.
+Weichen beide ab, steht oben `Build 3 ≠ 4 — neu laden` als Warnung, mit einem Link auf die
+Seite samt Cache-brechendem Parameter. Der Mischzustand wird damit sichtbar statt
+beschönigt.
 
 
 ## Sicherheit der API-Keys
@@ -388,7 +398,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-152 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
+154 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
 Markup, Sortierung, Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung und Persistenz sowie
 die Key-, CSP-, Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
 

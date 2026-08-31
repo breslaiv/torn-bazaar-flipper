@@ -38,6 +38,23 @@ test('jedes Script-Tag traegt die aktuelle Version', () => {
   assert.deepEqual(bad, [], `Nicht gestempelt:\n${bad.join('\n')}`);
 });
 
+test('jede Seite traegt den Build als meta', () => {
+  // Die HTML bestimmt, welche ?v=-URLs geladen werden. Weicht sie von
+  // APP_VERSION ab, laeuft ein Mischzustand - und genau der hat einmal ein
+  // falsches Etikett getragen: Kopfzeile Build 3, Logik Build 2.
+  for (const file of HTML) {
+    const m = readFileSync(`./${file}`, 'utf8').match(/<meta name="app-build" content="([^"]*)">/);
+    assert.ok(m, `${file}: kein app-build-meta`);
+    assert.equal(m[1], APP_VERSION, `${file}: veralteter Stempel`);
+  }
+});
+
+test('der Mischzustand wird erkannt statt beschoenigt', () => {
+  const ui = readFileSync('./js/ui.js', 'utf8');
+  assert.match(ui, /meta\[name="app-build"\]/);
+  assert.match(ui, /pageBuild !== APP_VERSION/);
+});
+
 test('jede Seite zeigt den Build an', () => {
   // Sonst bleibt "geht immer noch nicht" unauflösbar.
   for (const file of HTML) {

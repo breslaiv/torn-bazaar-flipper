@@ -1,4 +1,4 @@
-import { APP_VERSION } from './config.js?v=3';
+import { APP_VERSION } from './config.js?v=4';
 
 const money = new Intl.NumberFormat('en-US');
 
@@ -148,7 +148,24 @@ export function sortRows(rows, key, asc) {
  */
 export function showVersion() {
   const el = document.getElementById('appVersion');
-  if (el) el.textContent = `Build ${APP_VERSION}`;
+  if (!el) return;
+
+  // Die HTML bestimmt, welche ?v=-URLs geladen werden; APP_VERSION kommt aus
+  // einem der geladenen Module. Weichen beide ab, liegt ein Mischzustand vor:
+  // der Query-Parameter bustet nur den Browser-Cache, der Server liefert unter
+  // einer alten ?v=-URL trotzdem die neue Datei.
+  const pageBuild = document.querySelector('meta[name="app-build"]')?.content;
+  if (pageBuild && pageBuild !== APP_VERSION) {
+    const link = document.createElement('a');
+    link.href = `${location.pathname}?r=${Date.now()}`;
+    link.textContent = `Build ${pageBuild} ≠ ${APP_VERSION} — neu laden`;
+    el.replaceChildren(link);
+    el.className = 'tag warn';
+    return;
+  }
+
+  el.textContent = `Build ${APP_VERSION}`;
+  el.className = 'tag';
 }
 
 export function setStatus(text, kind = '') {

@@ -1,19 +1,19 @@
-import { loadSettings, saveSettings } from './storage.js?v=3';
+import { loadSettings, saveSettings } from './storage.js?v=4';
 import {
   makeEvent, matchFifo, summarise, filterByPeriod, profitByItem,
-} from './ledger.js?v=3';
+} from './ledger.js?v=4';
 import {
   loadEvents, saveEvents, addEvents, removeEvent, clearLedger,
   exportJson, parseImport, markExported, lastExport,
-} from './ledgerStore.js?v=3';
+} from './ledgerStore.js?v=4';
 import {
   fetchLog, fetchLogTypes, fetchLogCategories, deriveLogTypes, deriveCategories,
   inspect, TornLogError,
-} from './tornlog.js?v=3';
-import { fetchMarketplace } from './weav3r.js?v=3';
-import { renderTable } from './table.js?v=3';
-import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=3';
-import { APP_VERSION } from './config.js?v=3';
+} from './tornlog.js?v=4';
+import { fetchMarketplace } from './weav3r.js?v=4';
+import { renderTable } from './table.js?v=4';
+import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=4';
+import { APP_VERSION } from './config.js?v=4';
 
 let events = [];
 let pendingImport = [];
@@ -130,7 +130,16 @@ function render() {
 
   renderTiles(summary, days);
   renderTable('openTable', OPEN_COLUMNS, all.openLots, { empty: 'Kein offener Bestand.' });
-  renderTable('salesTable', SALE_COLUMNS, scoped.sales, { empty: 'Keine Verkäufe im Zeitraum.' });
+  renderTable('salesTable', SALE_COLUMNS, scoped.sales, {
+    // Nur Kaeufe erfasst und nichts verkauft heisst nicht, dass der Ledger
+    // kaputt ist - beim Flippen laufen die Verkaeufe ueber Trades, und die
+    // kann der Import noch nicht zuordnen. Ohne diesen Hinweis sieht die
+    // Seite nach Fehler aus.
+    empty: all.openLots.length
+      ? 'Keine Verkäufe erfasst, aber Bestand vorhanden. Verkäufe über Trades kann der Import '
+        + 'noch nicht zuordnen — bis dahin unten von Hand erfassen.'
+      : 'Keine Verkäufe im Zeitraum.',
+  });
   renderTable('byItemTable', ITEM_COLUMNS, profitByItem(scoped.sales), { empty: 'Noch nichts verkauft.' });
 
   document.getElementById('openCount').textContent = String(all.openLots.length);
