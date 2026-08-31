@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Torn Bazaar Flipper</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231c1f25'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='%234da3ff' font-family='sans-serif'%3E%24%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header>
+  <h1>Torn Bazaar Flipper</h1>
+  <span id="lastRun" class="tag"></span>
+  <nav>
+    <a href="diagnose.html">API-Diagnose</a>
+    <a href="https://weav3r.dev/api-docs.html" target="_blank" rel="noopener">API-Doku</a>
+  </nav>
+</header>
+
+<main>
+  <p class="note">
+    Kauft günstige Bazaar-Listings und verkauft sie per Trade an Spieler mit öffentlicher
+    Pricelist. Die Käuferpreise sind echte Angebote aus
+    <code>/marketplace/{id}/traders</code>, keine geschätzten Marktwerte.
+    Kein API-Key nötig — alle genutzten Routen sind öffentlich.
+  </p>
+
+  <details class="panel" id="settingsPanel" open>
+    <summary>Einstellungen</summary>
+
+    <h2>Modus</h2>
+    <div class="grid">
+      <label class="field">Was gescannt wird
+        <select id="scanMode">
+          <option value="flip">Bazaar &rarr; privater Käufer</option>
+          <option value="dollar">$1-Bazaare</option>
+        </select>
+        <span class="hint">$1-Modus listet Items, die für einen Dollar im Bazaar stehen.</span>
+      </label>
+      <label class="field" data-flip-only>Referenzpreis
+        <select id="referenceMode">
+          <option value="trader">Ankaufspreis des besten Käufers</option>
+          <option value="market_price">Torn-Marktpreis</option>
+        </select>
+        <span class="hint">Im Käufer-Modus entfallen Items ohne aktiven Abnehmer.</span>
+      </label>
+      <label class="field">Sicherheitsabschlag (%)
+        <input type="number" id="sellFactor" min="1" max="200" step="1">
+        <span class="hint">100 = Referenz wird voll angesetzt.</span>
+      </label>
+      <label class="field">Verkaufsgebühr (%)
+        <input type="number" id="marketFeePct" min="0" max="50" step="0.1">
+        <span class="hint">Trades sind gebührenfrei. Nur für einen Item-Market-Exit relevant.</span>
+      </label>
+    </div>
+
+    <h2 style="margin-top:20px">Vorauswahl</h2>
+    <div class="grid">
+      <label class="field">Kandidat ab Rabatt
+        <input type="number" id="prescreenPct" min="1" max="100" step="1">
+        <span class="hint">Nur Items, deren billigstes Listing höchstens X% des Marktpreises kostet.</span>
+      </label>
+      <label class="field">Max. Kandidaten
+        <input type="number" id="maxCandidates" min="1" max="45" step="1">
+        <span class="hint">Kostet 2 Requests pro Stück. weav3r erlaubt 100/Minute.</span>
+      </label>
+      <label class="field" data-flip-only>Listings pro Item
+        <input type="number" id="listingsPerItem" min="1" max="100" step="1">
+      </label>
+      <label class="field" data-flip-only>Käufer pro Item
+        <input type="number" id="tradersPerItem" min="1" max="100" step="1">
+      </label>
+      <label class="field" data-flip-only>Käufer aktiv seit (Stunden)
+        <input type="number" id="tradedWithinHours" min="0" max="168" step="1">
+        <span class="hint">Nur Käufer mit Handel in diesem Zeitraum. 0 = kein Filter.</span>
+      </label>
+      <label class="field" data-flip-only>Bewertung
+        <span><input type="checkbox" id="requireNonNegativeRating"> keine negativ bewerteten Käufer</span>
+      </label>
+    </div>
+
+    <h2 style="margin-top:20px">Filter</h2>
+    <div class="grid">
+      <label class="field">Min. Profit pro Stück ($)
+        <input type="number" id="minProfitAbs" min="0" step="1000">
+      </label>
+      <label class="field">Min. Marge (%)
+        <input type="number" id="minProfitPct" min="0" step="1">
+      </label>
+      <label class="field">Max. Kaufpreis ($)
+        <input type="number" id="maxBuyPrice" min="0" step="10000">
+        <span class="hint">0 = kein Limit.</span>
+      </label>
+      <label class="field">Budget ($)
+        <input type="number" id="budget" min="0" step="100000">
+        <span class="hint">Begrenzt die Stückzahl und damit den Gesamtprofit. 0 = kein Limit.</span>
+      </label>
+      <label class="field">Auto-Refresh (Sekunden)
+        <input type="number" id="autoRefreshSec" min="0" step="30">
+        <span class="hint">0 = aus.</span>
+      </label>
+    </div>
+
+    <h2 style="margin-top:20px">Optionale Keys</h2>
+    <div class="grid">
+      <label class="field">Torn API-Key
+        <input type="password" id="tornKey" autocomplete="off" placeholder="optional">
+        <span class="hint">Aktiviert die Gegenprobe gegen den echten Item-Market-Tiefstpreis.</span>
+      </label>
+      <label class="field">weav3r API-Key
+        <input type="password" id="weav3rKey" autocomplete="off" placeholder="optional">
+        <span class="hint">Für die genutzten Routen nicht nötig.</span>
+      </label>
+    </div>
+
+    <div class="actions">
+      <button id="saveBtn" class="primary">Speichern</button>
+      <button id="resetBtn">Einstellungen zurücksetzen</button>
+    </div>
+  </details>
+
+  <div class="panel">
+    <div class="actions" style="margin-top:0">
+      <button id="scanBtn" class="primary">Scan starten</button>
+      <button id="stopBtn" disabled>Stopp</button>
+      <span id="status"></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Treffer (<span id="rowCount">0</span>)</h2>
+    <div class="table-wrap">
+      <table id="results">
+        <thead>
+          <tr>
+            <th class="left" data-sort="itemName">Item</th>
+            <th class="left" data-sort="sellerName">Bazaar</th>
+            <th data-sort="buy">Kaufpreis</th>
+            <th class="left" data-sort="buyerName">Käufer</th>
+            <th data-sort="reference">Ankauf</th>
+            <th data-sort="sellNet">Netto</th>
+            <th data-sort="profitPerUnit">Profit/Stück</th>
+            <th data-sort="profitPct">Marge</th>
+            <th data-sort="units">Menge</th>
+            <th data-sort="totalProfit">Gesamt</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

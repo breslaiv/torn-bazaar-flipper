@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API-Diagnose &mdash; Torn Bazaar Flipper</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231c1f25'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='%234da3ff' font-family='sans-serif'%3E%24%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header>
+  <h1>API-Diagnose</h1>
+  <nav><a href="index.html">&larr; Scanner</a></nav>
+</header>
+
+<main>
+  <p class="note">
+    Prüft jede Route, die der Scanner benutzt, gegen den echten Server — und damit die
+    einzige Frage, die sich nicht aus der Doku beantworten lässt:
+    <strong>erlaubt weav3r Cross-Origin-Requests von dieser Seite aus?</strong>
+    Der Bericht lässt sich kopieren und weitergeben.
+  </p>
+
+  <div class="panel">
+    <div class="grid">
+      <label class="field">Test-Item-ID
+        <input type="number" id="testItemId" value="206">
+        <span class="hint">206 = Xanax.</span>
+      </label>
+      <label class="field">weav3r API-Key
+        <input type="password" id="weav3rKey" autocomplete="off" placeholder="optional">
+      </label>
+    </div>
+    <div class="actions">
+      <button id="runAll" class="primary">Alle Routen testen</button>
+      <button id="testTorn">Torn-Key testen</button>
+      <button id="copyReport">Bericht kopieren</button>
+      <span id="status"></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Ergebnis</h2>
+    <pre class="raw" id="report">Noch kein Test gelaufen.</pre>
+  </div>
+</main>
+
+<script type="module" src="js/diagnose.js"></script>
+</body>
+</html>
