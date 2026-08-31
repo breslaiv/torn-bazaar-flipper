@@ -13,9 +13,9 @@
 // Die Feldnamen innerhalb von data/params sind in der Spec bewusst offen
 // ("Dynamic key-value pairs"), deshalb bleibt die Extraktion defensiv.
 
-import { TORN_API_BASE, TORN_RATE_LIMIT } from './config.js?v=2';
-import { RateLimiter } from './ratelimit.js?v=2';
-import { makeEvent, isValidEvent } from './ledger.js?v=2';
+import { TORN_API_BASE, TORN_RATE_LIMIT } from './config.js?v=3';
+import { RateLimiter } from './ratelimit.js?v=3';
+import { makeEvent, isValidEvent } from './ledger.js?v=3';
 
 export const limiter = new RateLimiter(TORN_RATE_LIMIT, 'torn-log');
 
@@ -49,10 +49,12 @@ export const RULES = [
   { kind: 'trade', title: /^trade (items (outgoing|incoming)|completed|accepted)$/i },
 ];
 
-// Ein Serverfilter mit sehr vielen Ids liefert nichts zurueck. Die Grenze ist
-// nicht dokumentiert, deshalb eine konservative Obergrenze plus der Rueckfall
-// in fetchLog, falls gefiltert trotzdem nichts kommt.
-export const MAX_FILTER_IDS = 25;
+// Kategorien, die ueberhaupt Warenbewegungen enthalten. Gefiltert wird ueber
+// cat=, nicht ueber log=: der Id-Filter lieferte im echten Betrieb auch mit
+// nur 12 Ids nichts zurueck. Ueber die Kategorie kommen dagegen genau die
+// Eintraege, um die es geht - ohne sie besteht ein Log-Abzug zu ueber 90%
+// aus Crimes, Company und Nachrichten.
+export const CATEGORY_RULES = [/bazaar/i, /item market|itemmarket/i, /^trades?$/i];
 
 const ITEM_ID_KEYS = ['item', 'item_id', 'itemId', 'itemID'];
 const ITEM_ID_KEYS_IN_ARRAY = ['id', ...ITEM_ID_KEYS];
@@ -131,13 +133,23 @@ export function deriveLogTypes(logTypes) {
     byId.set(type.id, rule.kind);
     matched.push({ ...type, kind: rule.kind });
   }
-  const all = [...byId.keys()];
-  return {
-    ids: all.slice(0, MAX_FILTER_IDS),
-    truncated: Math.max(0, all.length - MAX_FILTER_IDS),
-    byId,
-    matched,
-  };
+  return { byId, matched };
+}
+
+/** Kategorien, die es zu lesen lohnt, aus Torns eigener Kategorienliste. */
+export function deriveCategories(categories) {
+  return categories.filter((c) => CATEGORY_RULES.some((r) => r.test(c.title)));
+}
+
+/** Normalisiert die Antwort von /torn/logcategories. */
+export function normaliseLogCategories(payload) {
+  const raw = payload?.logcategories ?? payload;
+  const list = Array.isArray(raw)
+    ? raw
+    : Object.entries(raw || {}).map(([id, title]) => ({ id: Number(id), title }));
+  return list
+    .map((c) => ({ id: num(c?.id), title: String(c?.title ?? '') }))
+    .filter((c) => Number.isFinite(c.id) && c.title);
 }
 
 /** Kauf oder Verkauf - ueber die Typ-Id, ersatzweise ueber den Titel. */
@@ -271,27 +283,29 @@ export async function fetchLogTypes(key, { signal } = {}) {
   return normaliseLogTypes(await tornGet(url, signal));
 }
 
-/**
- * Holt Log-Eintraege, neueste zuerst.
- * Mit logIds filtert Torn serverseitig; ohne sie kommt alles, damit der
- * Bericht zeigen kann, was das Log ueberhaupt enthaelt.
- */
-export async function fetchLog(key, { maxEntries = 300, logIds = [], signal } = {}) {
+/** Alle Log-Kategorien samt Id und Titel. Braucht nur einen Public-Key. */
+export async function fetchLogCategories(key, { signal } = {}) {
+  const url = new URL(`${TORN_API_BASE}/torn/logcategories`);
+  url.searchParams.set('key', key);
+  return normaliseLogCategories(await tornGet(url, signal));
+}
+
+/** Eine Seitenfolge lesen, optional auf eine Kategorie eingeschraenkt. */
+async function fetchPages(key, { maxEntries, cat = null, signal }) {
   const collected = [];
   let next = null;
-  let usedFilter = logIds.length > 0;
 
   while (collected.length < maxEntries) {
     let url;
     if (next) {
       url = new URL(next);
-      // Der Link von Torn traegt den Key nicht mit.
+      // Der Folgelink von Torn traegt den Key nicht mit.
       if (!url.searchParams.get('key')) url.searchParams.set('key', key);
     } else {
       url = new URL(`${TORN_API_BASE}/user/log`);
       url.searchParams.set('key', key);
       url.searchParams.set('limit', '100');
-      if (logIds.length) url.searchParams.set('log', logIds.join(','));
+      if (cat !== null) url.searchParams.set('cat', String(cat));
     }
 
     const payload = await tornGet(url, signal);
@@ -299,19 +313,43 @@ export async function fetchLog(key, { maxEntries = 300, logIds = [], signal } = 
     if (!page.length) break;
     collected.push(...page);
 
-    // Die Spec liefert fertige Folgelinks; nanostamp loest den Fall, dass
-    // mehr als 100 Eintraege dieselbe Sekunde tragen.
     next = payload?._metadata?.links?.next || null;
     if (!next || page.length < 100) break;
   }
 
-  // Ein gefilterter Aufruf, der nichts liefert, ist nicht von "nichts
-  // passiert" zu unterscheiden. Statt das offen zu lassen, einmal ungefiltert
-  // nachfassen - der Bericht sagt dann, welcher Weg gegriffen hat.
-  if (!collected.length && usedFilter) {
-    const fallback = await fetchLog(key, { maxEntries, logIds: [], signal });
-    return { entries: fallback.entries, usedFilter: false, fellBack: true };
+  return collected.slice(0, maxEntries);
+}
+
+/**
+ * Holt Log-Eintraege, neueste zuerst.
+ *
+ * Gefiltert wird ueber cat= je Kategorie. Der Id-Filter log= wurde
+ * aufgegeben: er lieferte im echten Betrieb auch mit nur zwoelf Ids nichts
+ * zurueck. Bringt auch cat= nichts, wird einmal ungefiltert gelesen - dann
+ * besteht der Abzug zwar groesstenteils aus Irrelevantem, aber ein leeres
+ * Ergebnis bleibt nie unerklaert.
+ */
+export async function fetchLog(key, { maxEntries = 300, categoryIds = [], signal } = {}) {
+  const perCategory = categoryIds.length
+    ? Math.max(100, Math.ceil(maxEntries / categoryIds.length))
+    : maxEntries;
+
+  const seen = new Set();
+  const entries = [];
+  for (const cat of categoryIds) {
+    if (signal?.aborted) break;
+    for (const entry of await fetchPages(key, { maxEntries: perCategory, cat, signal })) {
+      if (seen.has(entry.id)) continue;
+      seen.add(entry.id);
+      entries.push(entry);
+    }
   }
 
-  return { entries: collected.slice(0, maxEntries), usedFilter, fellBack: false };
+  if (entries.length) {
+    entries.sort((a, b) => b.ts - a.ts);
+    return { entries: entries.slice(0, maxEntries), usedFilter: true, fellBack: false };
+  }
+
+  const fallback = await fetchPages(key, { maxEntries, cat: null, signal });
+  return { entries: fallback, usedFilter: false, fellBack: categoryIds.length > 0 };
 }

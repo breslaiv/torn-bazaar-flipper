@@ -151,19 +151,37 @@ heisst, schon der Typ passt zu keiner Regel. Passt etwas nicht, ist das eine Zei
 aus `cost_each` genommen, nicht aus Summe durch Menge — dasselbe Ergebnis ohne
 Rundungsrisiko. Fehlt `cost_each`, bleibt die Division als Rückfall.
 
-**Der Serverfilter bleibt klein.** Torn führt 63 Log-Typen mit „Trade" im Namen — Faction,
-Company, Shares, Peace Treaties, Kommentare. Eine Regel auf `\btrade\b` schrieb sie alle in
-`log=` und `/user/log` antwortete daraufhin **leer**: aus 100 Einträgen wurden 0. Die Regel
-greift jetzt nur noch auf die vier Typen, bei denen Ware den Besitzer wechselt, dazu eine
-Obergrenze von 25 Ids. Und falls ein gefilterter Aufruf trotzdem nichts liefert, wird
-einmal ungefiltert nachgelesen — der Bericht sagt, welcher Weg gegriffen hat. Ein leeres
-Ergebnis ist damit nie mehr von „nichts passiert" ununterscheidbar.
+**Gefiltert wird über `cat=`, nicht über `log=`.** Der Id-Filter lieferte im echten Betrieb
+nichts zurück — auch mit nur zwölf Ids, ohne Fehlermeldung. Die erste Vermutung, es seien zu
+viele Ids gewesen, war falsch. Über die Kategorie kommen dagegen genau die Einträge, um die
+es geht: ein ungefilterter Abzug von 100 Zeilen enthielt nur **8** Bazaar-Käufe, der Rest
+waren Crimes, Company, Trade-Zwischenschritte und Nachrichten. Wer ungefiltert liest, liest
+am Ziel vorbei.
 
-**Trades werden nicht automatisch gebucht.** Über einen Trade lässt sich genauso einkaufen
-wie verkaufen, und aus dem Titel („Trade accepted") geht die Richtung nicht hervor. Ein als
-Verkauf gebuchter Einkauf wäre erfundener Gewinn, deshalb landen Trades vorerst im Bericht
-statt im Ledger — mit Rohbeispiel, aus dem sich die Richtungserkennung nachrüsten lässt.
-Bis dahin gehören sie über das Formular von Hand erfasst.
+Liefert auch `cat=` nichts, wird einmal ungefiltert nachgelesen. Der Bericht sagt in jedem
+Fall, welcher Weg gegriffen hat — ein leeres Ergebnis ist nie von „nichts passiert"
+ununterscheidbar.
+
+**Trades werden nicht automatisch gebucht.** Ein echter `Trade completed`-Eintrag sieht so
+aus:
+
+```json
+{ "user": 3459156, "parsed_trade_id": 13118650,
+  "trade_id": "[<a href=\"/trade.php#step=view&ID=13118650\">view</a>]" }
+```
+
+Weder Items noch Beträge — der Eintrag allein ist nie buchbar. Ware und Geld stehen in den
+Zwischenschritten desselben Trades (`Trade items add`, `Trade money incoming`,
+`Trade money add other user`), verbunden über `parsed_trade_id`. Genau daraus ergäbe sich
+auch die Richtung: wer Items einlegt und Geld bekommt, hat verkauft.
+
+Solange diese Rekonstruktion nicht steht, landen Trades im Bericht statt im Ledger und
+gehören über das Formular von Hand erfasst. Ein als Verkauf gebuchter Einkauf wäre
+erfundener Gewinn.
+
+**Ein Rohbeispiel je Titel, nicht je Grund.** 80 übersprungene Einträge aus fünfzehn
+verschiedenen Titeln teilten sich vorher ein einziges Beispiel — ausgerechnet ein
+`Company deposit`. Die Form der Trade-Zwischenschritte blieb damit unsichtbar.
 
 Wiederholte Importe verdoppeln nichts: jeder Log-Eintrag trägt seine Referenz mit.
 
@@ -370,7 +388,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-150 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
+152 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
 Markup, Sortierung, Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung und Persistenz sowie
 die Key-, CSP-, Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
 

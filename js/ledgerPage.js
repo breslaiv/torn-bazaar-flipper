@@ -1,16 +1,19 @@
-import { loadSettings, saveSettings } from './storage.js?v=2';
+import { loadSettings, saveSettings } from './storage.js?v=3';
 import {
   makeEvent, matchFifo, summarise, filterByPeriod, profitByItem,
-} from './ledger.js?v=2';
+} from './ledger.js?v=3';
 import {
   loadEvents, saveEvents, addEvents, removeEvent, clearLedger,
   exportJson, parseImport, markExported, lastExport,
-} from './ledgerStore.js?v=2';
-import { fetchLog, fetchLogTypes, deriveLogTypes, inspect, TornLogError } from './tornlog.js?v=2';
-import { fetchMarketplace } from './weav3r.js?v=2';
-import { renderTable } from './table.js?v=2';
-import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=2';
-import { APP_VERSION } from './config.js?v=2';
+} from './ledgerStore.js?v=3';
+import {
+  fetchLog, fetchLogTypes, fetchLogCategories, deriveLogTypes, deriveCategories,
+  inspect, TornLogError,
+} from './tornlog.js?v=3';
+import { fetchMarketplace } from './weav3r.js?v=3';
+import { renderTable } from './table.js?v=3';
+import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=3';
+import { APP_VERSION } from './config.js?v=3';
 
 let events = [];
 let pendingImport = [];
@@ -201,11 +204,14 @@ async function importFromLog() {
     // daraus die Kauf- und Verkaufstypen ableiten, dann serverseitig danach
     // filtern - das erspart es, irrelevante Kategorien durchzublaettern.
     setStatus('Lade Torns Log-Typen…');
-    const { ids, byId, matched, truncated } = deriveLogTypes(await fetchLogTypes(settings.tornKey));
+    const { byId, matched } = deriveLogTypes(await fetchLogTypes(settings.tornKey));
+    const cats = deriveCategories(await fetchLogCategories(settings.tornKey));
 
     setStatus('Lese Torn-Log…');
     const maxEntries = Number(document.getElementById('logMax').value) || 300;
-    const { entries, usedFilter, fellBack } = await fetchLog(settings.tornKey, { maxEntries, logIds: ids });
+    const { entries, usedFilter, fellBack } = await fetchLog(settings.tornKey, {
+      maxEntries, categoryIds: cats.map((c) => c.id),
+    });
     const result = inspect(entries, itemNames, byId);
     pendingImport = result.events;
     backfillNames(itemNames);
@@ -215,12 +221,12 @@ async function importFromLog() {
     // dem Code zuordnen, der ihn erzeugt hat.
     lines.push(`Build ${APP_VERSION} — ${new Date().toLocaleString('de-DE')}`);
     lines.push(`${entries.length} Log-Einträge gelesen, ${result.events.length} als Kauf oder Verkauf erkannt.`);
+    const catNames = cats.map((c) => `${c.title} (${c.id})`).join(', ');
     lines.push(usedFilter
-      ? `Serverseitig gefiltert auf ${ids.length} Log-Typen.`
+      ? `Kategorien gelesen: ${catNames || '—'}`
       : (fellBack
-        ? `Der Filter (${ids.length} Typen) lieferte nichts — ungefiltert nachgelesen.`
-        : 'Ungefiltert gelesen: kein Log-Typ passte auf eine Regel.'));
-    if (truncated) lines.push(`${truncated} weitere passende Typen wurden nicht angefragt (Obergrenze).`);
+        ? `Kategorien ${catNames} lieferten nichts — ungefiltert nachgelesen.`
+        : 'Ungefiltert gelesen: keine Kategorie passte.'));
     lines.push('');
     lines.push('--- Zugeordnete Log-Typen (von Torn benannt) ---');
     if (matched.length) {
@@ -250,12 +256,18 @@ async function importFromLog() {
       lines.push(`${String(c.count).padStart(4)} x  ${mark} ${c.key}`);
     }
 
-    // Je Grund ein Rohbeispiel: mit nur einem einzigen bleibt die Form der
-    // uebrigen Faelle unsichtbar, und genau die braucht man zum Nachbessern.
-    for (const s of result.skipped) {
+    // Ein Rohbeispiel je Grund reichte nicht: 80 uebersprungene Eintraege aus
+    // fuenfzehn verschiedenen Titeln teilten sich eins, und die Form der
+    // uebrigen blieb unsichtbar. Deshalb je Titel eins.
+    const unresolved = result.categories.filter((c) => !c.imported).slice(0, 8);
+    for (const c of unresolved) {
       lines.push('');
-      lines.push(`--- Rohbeispiel: ${s.reason} ---`);
-      lines.push(JSON.stringify(s.sample, null, 2).slice(0, 900));
+      lines.push(`--- Rohbeispiel: ${c.key} (${c.count}x) ---`);
+      lines.push(JSON.stringify(c.sample, null, 2).slice(0, 600));
+    }
+    if (result.categories.filter((c) => !c.imported).length > unresolved.length) {
+      lines.push('');
+      lines.push(`(weitere ${result.categories.filter((c) => !c.imported).length - unresolved.length} Titel ohne Beispiel)`);
     }
 
     report.hidden = false;

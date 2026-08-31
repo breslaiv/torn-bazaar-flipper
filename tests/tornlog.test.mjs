@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  normaliseLog, normaliseLogTypes, deriveLogTypes, classify, mapEntry, inspect, RULES,
-  MAX_FILTER_IDS,
+  normaliseLog, normaliseLogTypes, normaliseLogCategories, deriveLogTypes, deriveCategories,
+  classify, mapEntry, inspect, RULES,
 } from '../js/tornlog.js';
 
 // Die echte Typenliste aus Torn, gekuerzt auf das Wesentliche plus die
@@ -23,22 +23,22 @@ const REAL_TYPES = [
   { id: 8150, title: 'Attack won' },
 ];
 
-test('der Serverfilter bleibt klein genug, um zu antworten', () => {
-  // 63 Typen tragen "Trade" im Namen. Alle anzufragen liess /user/log leer
-  // antworten - aus 100 Eintraegen wurden 0.
-  const { ids, matched } = deriveLogTypes(REAL_TYPES);
-  assert.ok(ids.length <= MAX_FILTER_IDS, `${ids.length} Ids sind zu viele`);
-  assert.ok(ids.length <= 12, `${ids.length} Ids: die Trade-Regel greift zu weit`);
+test('nur Kategorien mit Warenbewegung werden gelesen', () => {
+  // Aus einem echten Abzug: 100 Eintraege, davon 8 relevant. Der Rest waren
+  // Crimes, Company, Nachrichten. Ohne Kategoriefilter liest man am Ziel vorbei.
+  const cats = deriveCategories([
+    { id: 1, title: 'Bazaars' }, { id: 2, title: 'Item market' }, { id: 3, title: 'Trades' },
+    { id: 4, title: 'Crimes' }, { id: 5, title: 'Company' }, { id: 6, title: 'Messages' },
+    { id: 7, title: 'Attacking' }, { id: 8, title: 'Shops' },
+  ]);
+  assert.deepEqual(cats.map((c) => c.title), ['Bazaars', 'Item market', 'Trades']);
+});
 
-  const titles = matched.map((m) => m.title);
-  assert.ok(!titles.includes('Trade faction outgoing'), 'Faction-Trades gehoeren nicht dazu');
-  assert.ok(!titles.includes('Trade company outgoing'));
-  assert.ok(!titles.includes('Trade peace treaties'));
-  assert.ok(!titles.includes('Trade comment'));
-  assert.ok(!titles.includes('Trade NAPs (legacy)'));
-  assert.ok(!titles.includes('Trade initiate outgoing'), 'ein eroeffneter Trade ist kein Handel');
-  assert.ok(!titles.includes('Trade cancel outgoing'));
-  assert.ok(!titles.includes('Trade expire'));
+test('normaliseLogCategories versteht Array und Objektform', () => {
+  assert.deepEqual(normaliseLogCategories({ logcategories: [{ id: 3, title: 'Trades' }] }),
+    [{ id: 3, title: 'Trades' }]);
+  assert.deepEqual(normaliseLogCategories({ 3: 'Trades' }), [{ id: 3, title: 'Trades' }]);
+  assert.deepEqual(normaliseLogCategories({}), []);
 });
 
 test('die vier Trade-Typen mit Warenbewegung bleiben im Bericht', () => {
@@ -54,11 +54,38 @@ test('alle Kauf- und Verkaufstypen bleiben erhalten', () => {
   for (const id of [1104, 1113, 1221, 1226]) assert.equal(byId.get(id), 'sell', `Typ ${id}`);
 });
 
-test('zu viele Treffer werden gedeckelt und gemeldet', () => {
-  const viele = Array.from({ length: 40 }, (_, i) => ({ id: 9000 + i, title: 'Bazaar buy' }));
-  const { ids, truncated } = deriveLogTypes(viele);
-  assert.equal(ids.length, MAX_FILTER_IDS);
-  assert.equal(truncated, 40 - MAX_FILTER_IDS);
+// Wortwoertlich aus einem echten Log-Eintrag.
+const REAL_TRADE_COMPLETED = {
+  id: 'fHSU6t6nBYFJuYORf5ND', timestamp: 1788185437,
+  details: { id: 4430, title: 'Trade completed', category: 'Trades' },
+  data: {
+    italic: 1, color: 'green', user: 3459156,
+    trade_id: '[<a href = "/trade.php#step=view&ID=13118650"target = "_self">view</a>]',
+    parsed_trade_id: 13118650,
+  },
+};
+
+test('ein echtes "Trade completed" traegt weder Items noch Betrag', () => {
+  // Damit ist der Eintrag allein nie buchbar - Ware und Geld stehen in den
+  // Zwischenschritten desselben Trades.
+  const [e] = normaliseLog({ log: [REAL_TRADE_COMPLETED] });
+  const r = mapEntry(e, new Map(), new Map([[4430, 'trade']]));
+  assert.equal(r.event, undefined);
+  assert.match(r.skip, /Richtung/);
+  assert.equal(e.data.parsed_trade_id, 13118650, 'die Trade-Id verbindet die Zwischenschritte');
+});
+
+test('inspect liefert je Titel ein eigenes Rohbeispiel', () => {
+  // 80 uebersprungene Eintraege aus fuenfzehn Titeln teilten sich vorher eins.
+  const entries = normaliseLog({ log: [
+    REAL_TRADE_COMPLETED,
+    { id: 'c1', timestamp: 1, details: { id: 6284, title: 'Company deposit', category: 'Company' }, data: { deposited: 1 } },
+    { id: 'c2', timestamp: 2, details: { id: 6284, title: 'Company deposit', category: 'Company' }, data: { deposited: 2 } },
+  ] });
+  const report = inspect(entries);
+  const unresolved = report.categories.filter((c) => !c.imported);
+  assert.equal(unresolved.length, 2, 'zwei verschiedene Titel');
+  for (const c of unresolved) assert.ok(c.sample?.data, `kein Beispiel fuer ${c.key}`);
 });
 
 // Form laut OpenAPI 6.13.1: Titel und Kategorie stecken unter details.
@@ -116,7 +143,7 @@ test('normaliseLogTypes versteht Array und Objektform', () => {
 });
 
 test('deriveLogTypes bildet Torns eigene Typen auf Kauf und Verkauf ab', () => {
-  const { ids, byId, matched } = deriveLogTypes([
+  const { byId, matched } = deriveLogTypes([
     { id: 5360, title: 'Bazaar buy' },
     { id: 5361, title: 'Bazaar sell' },
     { id: 4900, title: 'Item market buy' },
@@ -127,14 +154,14 @@ test('deriveLogTypes bildet Torns eigene Typen auf Kauf und Verkauf ab', () => {
   assert.equal(byId.get(5361), 'sell');
   assert.equal(byId.get(4900), 'buy');
   assert.equal(byId.has(8150), false, 'irrelevante Typen bleiben draussen');
-  assert.deepEqual(ids.sort(), [4900, 5360, 5361]);
   assert.equal(matched.length, 3);
   assert.ok(matched.every((m) => m.title && m.kind));
 });
 
 test('deriveLogTypes liefert eine leere Auswahl statt zu raten', () => {
-  const { ids } = deriveLogTypes([{ id: 1, title: 'Gym train' }]);
-  assert.deepEqual(ids, []);
+  const { byId, matched } = deriveLogTypes([{ id: 1, title: 'Gym train' }]);
+  assert.equal(byId.size, 0);
+  assert.deepEqual(matched, []);
 });
 
 test('classify bevorzugt die Typ-Id vor dem Titel', () => {

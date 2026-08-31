@@ -1,7 +1,7 @@
-import { loadSettings, saveSettings } from './storage.js?v=2';
-import { fetchHealth, fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js?v=2';
-import { fetchKeyInfo } from './torn.js?v=2';
-import { setStatus, fmtMoney, showVersion } from './ui.js?v=2';
+import { loadSettings, saveSettings } from './storage.js?v=3';
+import { fetchHealth, fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js?v=3';
+import { fetchKeyInfo } from './torn.js?v=3';
+import { setStatus, fmtMoney, showVersion } from './ui.js?v=3';
 
 const reportEl = document.getElementById('report');
 const lines = [];

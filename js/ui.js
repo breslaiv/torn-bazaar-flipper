@@ -1,4 +1,4 @@
-import { APP_VERSION } from './config.js?v=2';
+import { APP_VERSION } from './config.js?v=3';
 
 const money = new Intl.NumberFormat('en-US');
 
