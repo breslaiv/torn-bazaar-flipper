@@ -41,10 +41,12 @@ test('normaliseLogCategories versteht Array und Objektform', () => {
   assert.deepEqual(normaliseLogCategories({}), []);
 });
 
-test('die vier Trade-Typen mit Warenbewegung bleiben im Bericht', () => {
+test('Trade-Typen gehoeren nicht in die Einzelauswertung', () => {
+  // Ein einzelner Trade-Eintrag ist nie buchbar; zusammengefasst wird er in
+  // tradelog.js ueber parsed_trade_id.
   const { byId } = deriveLogTypes(REAL_TYPES);
   for (const id of [4430, 4431, 4445, 4446]) {
-    assert.equal(byId.get(id), 'trade', `Typ ${id} fehlt`);
+    assert.equal(byId.has(id), false, `Typ ${id} darf nicht einzeln gebucht werden`);
   }
 });
 
@@ -66,13 +68,13 @@ const REAL_TRADE_COMPLETED = {
 };
 
 test('ein echtes "Trade completed" traegt weder Items noch Betrag', () => {
-  // Damit ist der Eintrag allein nie buchbar - Ware und Geld stehen in den
-  // Zwischenschritten desselben Trades.
+  // Deshalb laeuft es ueber die Rekonstruktion: Ware und Geld stehen in den
+  // Zwischenschritten desselben Trades, verbunden ueber parsed_trade_id.
   const [e] = normaliseLog({ log: [REAL_TRADE_COMPLETED] });
-  const r = mapEntry(e, new Map(), new Map([[4430, 'trade']]));
-  assert.equal(r.event, undefined);
-  assert.match(r.skip, /Richtung/);
+  assert.equal(e.data.items, undefined, 'keine Ware im Abschluss');
+  assert.equal(e.data.money, undefined, 'kein Betrag im Abschluss');
   assert.equal(e.data.parsed_trade_id, 13118650, 'die Trade-Id verbindet die Zwischenschritte');
+  assert.match(mapEntry(e).skip, /Teil eines Trades/);
 });
 
 test('inspect liefert je Titel ein eigenes Rohbeispiel', () => {
@@ -231,18 +233,16 @@ test('ohne cost_each bleibt die Division als Rueckfall', () => {
   assert.equal(mapEntry(e, new Map(), new Map([[1226, 'sell']])).event.unitPrice, 500);
 });
 
-test('Trades werden nicht blind als Verkauf gebucht', () => {
-  // Ueber einen Trade kann man genauso einkaufen. Als Verkauf gebucht waere
-  // ein Einkauf reiner Fantasiegewinn - lieber melden.
-  const trade = {
-    id: 't1', timestamp: 1788167064,
-    details: { id: 4431, title: 'Trade accepted', category: 'Trades' },
-    data: { trade_id: 55, user: 3814288 },
-  };
-  const [e] = normaliseLog({ log: [trade] });
-  const r = mapEntry(e);
-  assert.equal(r.event, undefined);
-  assert.match(r.skip, /Richtung/);
+test('kein Trade-Zwischenschritt wird als eigener Vorgang gezaehlt', () => {
+  // Sonst zaehlte ein Trade mehrfach: Bestuecken, Abschluss und Ueberweisung
+  // sind derselbe Handel.
+  for (const title of ['Trade accepted', 'Trade items add', 'Trade money incoming']) {
+    const [e] = normaliseLog({ log: [{
+      id: 't', timestamp: 1, details: { id: 4431, title, category: 'Trades' },
+      data: { parsed_trade_id: 55, user: 3814288, items: [{ id: 1, qty: 1 }], money: 100 },
+    }] });
+    assert.match(mapEntry(e).skip, /Teil eines Trades/, title);
+  }
 });
 
 test('deriveLogTypes ordnet die echten Torn-Titel zu', () => {
@@ -263,8 +263,8 @@ test('deriveLogTypes ordnet die echten Torn-Titel zu', () => {
   assert.equal(byId.get(1220), 'buy');
   assert.equal(byId.get(1225), 'buy');
   assert.equal(byId.get(1226), 'sell');
-  assert.equal(byId.get(4430), 'trade', 'Richtung offen, nicht geraten');
-  assert.equal(byId.get(4431), 'trade');
+  assert.equal(byId.has(4430), false, 'Trades laufen ueber die Rekonstruktion');
+  assert.equal(byId.has(4431), false);
   assert.equal(byId.has(8150), false);
 });
 
@@ -354,7 +354,7 @@ test('die Regeln greifen auf Titel, wie Torn sie schreibt', () => {
     ['Item market sell', 'sell'],
     ['Item market buy (old)', 'buy'],
     ['Bazaar buy (legacy)', 'buy'],
-    ['Trade completed', 'trade'],
+    ['Trade completed', null],
     ['Attack won', null],
   ];
   for (const [title, expected] of titles) {

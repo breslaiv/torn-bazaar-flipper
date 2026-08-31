@@ -10,6 +10,7 @@ import {
   fetchLog, fetchLogTypes, fetchLogCategories, deriveLogTypes, deriveCategories,
   inspect, TornLogError,
 } from './tornlog.js?v=4';
+import { reconstructTrades } from './tradelog.js?v=4';
 import { fetchMarketplace } from './weav3r.js?v=4';
 import { renderTable } from './table.js?v=4';
 import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=4';
@@ -222,14 +223,18 @@ async function importFromLog() {
       maxEntries, categoryIds: cats.map((c) => c.id),
     });
     const result = inspect(entries, itemNames, byId);
-    pendingImport = result.events;
+    // Trades entstehen aus mehreren Log-Eintraegen und werden getrennt
+    // zusammengesetzt; einzeln ist keiner davon buchbar.
+    const trades = reconstructTrades(entries, itemNames);
+    pendingImport = [...result.events, ...trades.events];
     backfillNames(itemNames);
 
     const lines = [];
     // Steht bewusst als erste Zeile: ohne sie laesst sich ein Bericht nicht
     // dem Code zuordnen, der ihn erzeugt hat.
     lines.push(`Build ${APP_VERSION} — ${new Date().toLocaleString('de-DE')}`);
-    lines.push(`${entries.length} Log-Einträge gelesen, ${result.events.length} als Kauf oder Verkauf erkannt.`);
+    lines.push(`${entries.length} Log-Einträge gelesen, ${pendingImport.length} Vorgänge erkannt `
+      + `(${result.events.length} direkt, ${trades.events.length} aus ${trades.groups} Trades).`);
     const catNames = cats.map((c) => `${c.title} (${c.id})`).join(', ');
     lines.push(usedFilter
       ? `Kategorien gelesen: ${catNames || '—'}`
@@ -249,9 +254,12 @@ async function importFromLog() {
     }
     lines.push('');
 
-    if (result.skipped.length) {
+    const skipped = [...result.skipped, ...trades.skipped]
+      .filter((s) => !/Teil eines Trades/.test(s.reason))
+      .sort((a, b) => b.count - a.count);
+    if (skipped.length) {
       lines.push('--- Nicht übernommen ---');
-      for (const s of result.skipped) {
+      for (const s of skipped) {
         lines.push(`${String(s.count).padStart(4)} x  ${s.reason}`);
         for (const ex of s.examples) lines.push(`         z.B. ${ex}`);
       }
@@ -261,22 +269,27 @@ async function importFromLog() {
     lines.push('--- Kategorien im Log ---');
     for (const c of result.categories.slice(0, 25)) {
       // Typ erkannt, Daten gelesen - zwei getrennte Haken.
-      const mark = c.imported ? '[übernommen]' : (c.classified ? '[Typ ok]    ' : '[unbekannt] ');
+      const mark = c.imported
+        ? '[übernommen]'
+        : (/^Trades? \//.test(c.key) ? '[Trade-Teil]' : (c.classified ? '[Typ ok]    ' : '[unbekannt] '));
       lines.push(`${String(c.count).padStart(4)} x  ${mark} ${c.key}`);
     }
 
     // Ein Rohbeispiel je Grund reichte nicht: 80 uebersprungene Eintraege aus
     // fuenfzehn verschiedenen Titeln teilten sich eins, und die Form der
     // uebrigen blieb unsichtbar. Deshalb je Titel eins.
-    const unresolved = result.categories.filter((c) => !c.imported).slice(0, 8);
+    const unresolved = result.categories
+      .filter((c) => !c.imported && !/^Trades? \//.test(c.key))
+      .slice(0, 8);
     for (const c of unresolved) {
       lines.push('');
       lines.push(`--- Rohbeispiel: ${c.key} (${c.count}x) ---`);
       lines.push(JSON.stringify(c.sample, null, 2).slice(0, 600));
     }
-    if (result.categories.filter((c) => !c.imported).length > unresolved.length) {
+    const restlich = result.categories.filter((c) => !c.imported && !/^Trades? \//.test(c.key)).length;
+    if (restlich > unresolved.length) {
       lines.push('');
-      lines.push(`(weitere ${result.categories.filter((c) => !c.imported).length - unresolved.length} Titel ohne Beispiel)`);
+      lines.push(`(weitere ${restlich - unresolved.length} Titel ohne Beispiel)`);
     }
 
     report.hidden = false;

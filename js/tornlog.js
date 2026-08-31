@@ -16,6 +16,7 @@
 import { TORN_API_BASE, TORN_RATE_LIMIT } from './config.js?v=4';
 import { RateLimiter } from './ratelimit.js?v=4';
 import { makeEvent, isValidEvent } from './ledger.js?v=4';
+import { isTradeEntry } from './tradelog.js?v=4';
 
 export const limiter = new RateLimiter(TORN_RATE_LIMIT, 'torn-log');
 
@@ -37,16 +38,10 @@ export const RULES = [
   { kind: 'sell', title: /\b(bazaar|item market|itemmarket)\b.*\b(sell|sold)/i },
   { kind: 'buy', title: /^(buy|bought|purchas)/i },
   { kind: 'sell', title: /^(sell|sold)/i },
-  // Nur Trade-Typen, bei denen ueberhaupt Items den Besitzer wechseln. Torn
-  // fuehrt 63 Typen mit "Trade" im Namen - Faction, Company, Shares,
-  // Peace Treaties, Kommentare. Die alle in den Serverfilter zu schreiben
-  // liess /user/log leer antworten.
-  //
-  // Die Richtung bleibt offen: 'Trade completed' sagt nichts darueber, und
-  // ob 'items outgoing' den Abschluss meint oder schon das Bestuecken einer
-  // spaeter abgebrochenen Kiste, ist ungeklaert. Ein als Verkauf gebuchter
-  // Einkauf wuerde Profit erfinden.
-  { kind: 'trade', title: /^trade (items (outgoing|incoming)|completed|accepted)$/i },
+  // Trades stehen bewusst nicht hier: ein einzelner Trade-Eintrag ist nie
+  // buchbar. "Trade completed" nennt weder Ware noch Betrag, "Trade items add"
+  // keinen Preis. Sie werden ueber parsed_trade_id zusammengefasst - siehe
+  // js/tradelog.js.
 ];
 
 // Kategorien, die ueberhaupt Warenbewegungen enthalten. Gefiltert wird ueber
@@ -168,13 +163,12 @@ export function classify(entry, byId = new Map()) {
  * @returns {{event: object}|{skip: string}} - skip nennt den Grund.
  */
 export function mapEntry(entry, itemNames = new Map(), byId = new Map()) {
+  // Trade-Eintraege gehoeren in die Rekonstruktion, nicht in die
+  // Einzelauswertung - sonst zaehlt jeder Zwischenschritt als eigener Vorgang.
+  if (isTradeEntry(entry)) return { skip: 'Teil eines Trades (wird zusammengefasst)' };
+
   const kind = classify(entry, byId);
   if (!kind) return { skip: 'unbekannter Log-Typ' };
-  if (kind === 'trade') {
-    // Sobald die Felder eines Trade-Eintrags bekannt sind, kommt hier die
-    // Richtungserkennung hin. Bis dahin lieber melden als falsch buchen.
-    return { skip: 'Trade: Richtung (Kauf oder Verkauf) nicht erkennbar' };
-  }
 
   const data = entry.data || {};
 

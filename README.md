@@ -162,22 +162,39 @@ Liefert auch `cat=` nichts, wird einmal ungefiltert nachgelesen. Der Bericht sag
 Fall, welcher Weg gegriffen hat — ein leeres Ergebnis ist nie von „nichts passiert"
 ununterscheidbar.
 
-**Trades werden nicht automatisch gebucht.** Ein echter `Trade completed`-Eintrag sieht so
-aus:
+### Trades zusammensetzen
 
-```json
-{ "user": 3459156, "parsed_trade_id": 13118650,
-  "trade_id": "[<a href=\"/trade.php#step=view&ID=13118650\">view</a>]" }
+Ein Trade verteilt sich über mehrere Log-Einträge; einzeln ist keiner davon buchbar.
+`Trade completed` nennt weder Ware noch Betrag, `Trade items add` keinen Preis. Verbunden
+sind sie über `parsed_trade_id`:
+
+```
+Trade initiate outgoing     "Brass Imgot @ $17,732"
+Trade items add             ich lege 12x Item 1252 ein
+Trade money add other user  er legt 212.784 ein
+Trade completed             Abschluss
+Trade money incoming        ich bekomme 212.784
 ```
 
-Weder Items noch Beträge — der Eintrag allein ist nie buchbar. Ware und Geld stehen in den
-Zwischenschritten desselben Trades (`Trade items add`, `Trade money incoming`,
-`Trade money add other user`), verbunden über `parsed_trade_id`. Genau daraus ergäbe sich
-auch die Richtung: wer Items einlegt und Geld bekommt, hat verkauft.
+12 × 17.732 = 212.784. **Wer Ware einlegt und Geld bekommt, hat verkauft** — damit steht die
+Richtung fest, ohne sie zu raten. Der Kauf ist der gespiegelte Fall
+(`Trade items add other user` plus `Trade money outgoing`).
 
-Solange diese Rekonstruktion nicht steht, landen Trades im Bericht statt im Ledger und
-gehören über das Formular von Hand erfasst. Ein als Verkauf gebuchter Einkauf wäre
-erfundener Gewinn.
+Entscheidend ist das Suffix `other user`: es unterscheidet die Gegenseite von der eigenen.
+Die Muster in `js/tradelog.js` sind deshalb verankert — `trade items add` darf nicht auch
+auf `trade items add other user` passen, sonst kippt die Richtung.
+
+Nicht gebucht wird:
+
+- **ohne `Trade completed`** — abgebrochene, abgelehnte und abgelaufene Trades hinterlassen
+  dieselben Bestückungs-Einträge;
+- **Ware auf beiden Seiten** — ein Tausch hat keinen Geldwert je Seite;
+- **mehrere verschiedene Items** — ohne Einzelpreise ließe sich die Summe nicht fair
+  aufteilen. Der Eröffnungstext nennt zwar oft einen Stückpreis, aber freier Text ist keine
+  Grundlage für eine Bilanz.
+
+Wieder entfernte Ware (`Trade items remove`) wird abgezogen. Die Referenz `trade-<id>` ist
+über Importe hinweg stabil, ein erneuter Import verdoppelt also nichts.
 
 **Ein Rohbeispiel je Titel, nicht je Grund.** 80 übersprungene Einträge aus fünfzehn
 verschiedenen Titeln teilten sich vorher ein einziges Beispiel — ausgerechnet ein
@@ -381,7 +398,8 @@ js/app.js           Verdrahtung, Fortschritt
 ledger.html         Buchführung über Käufe, Verkäufe und Profit
 js/ledger.js        Ereignismodell, FIFO-Zuordnung, Kennzahlen
 js/ledgerStore.js   localStorage, Export und Import
-js/tornlog.js       Log-Typen von Torn, serverseitig gefilterter Import, Bericht
+js/tornlog.js       Log-Typen und -Kategorien von Torn, Import, Bericht
+js/tradelog.js      Trades aus mehreren Log-Eintraegen zusammensetzen
 js/table.js         Tabellenbau mit data-label für die Kartenansicht
 js/ledgerPage.js    Verdrahtung der Ledger-Seite
 tools/make-icon.py  erzeugt icon-180.png fuer den iOS-Home-Screen
@@ -398,7 +416,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-154 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
+168 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
 Markup, Sortierung, Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung und Persistenz sowie
 die Key-, CSP-, Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
 
