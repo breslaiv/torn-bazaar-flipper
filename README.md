@@ -536,6 +536,47 @@ nach Wissen; die Entscheidung lautet aber *reicht es für meine Plätze?* Deshal
 über eine angenommene Verteilung: jedes gemessene Tempo ist ein Szenario. Mit wenigen Messungen
 kommen dabei grobe Werte heraus — ehrlicher als eine glatte Kurve über drei Punkte.
 
+### Der Nachschub-Zyklus
+
+**Der Timer startet beim Ausverkauf, nicht nach der Uhr.** Erreicht ein Item 0, läuft eine
+item-spezifische Frist, und danach ist das Regal wieder voll. Das erste Modell nahm feste
+Abstände zwischen Nachschüben an — daran ging es systematisch vorbei.
+
+Zu schätzen sind damit drei Größen: der **Timer** (fest je Item), die **Regalgröße** (Näherung:
+das je gesehene Maximum) und der **Abverkauf** (bestimmt, wann der nächste Timer startet).
+
+Der Kniff bei fremden Daten: den genauen Moment des Ausverkaufs sieht niemand. Man sieht nur
+„um 12:00 waren noch 40 da" und „um 12:30 war es leer" — der Ausverkauf liegt *irgendwo*
+dazwischen, der Nachschub genauso. Jeder Zyklus liefert deshalb kein Datum, sondern ein
+**Intervall**:
+
+```
+Timer ≥ frühester Nachschub − spätester Ausverkauf
+Timer ≤ spätester Nachschub − frühester Ausverkauf
+```
+
+Der Schnitt über alle Zyklen ist enger als jede einzelne Beobachtung. Aus drei groben Zyklen
+(je 60 Minuten Unsicherheit) wird so ein Timer von 15 Minuten Breite — **ohne dass je ein
+einzelner Zeitpunkt bekannt wäre**. Widersprechen sich die Zyklen, wird nicht zu einem
+falschen Schnitt gezwungen: dann gilt der Median der Mittelwerte, und die Spanne bleibt offen
+ausgewiesen (Spalte *Timer* wird gelb).
+
+Vorhergesagt wird dann nicht über eine Formel, sondern durch **Vorwärtssimulation des
+Mechanismus**: Ware wird weniger, bis sie null ist; dann läuft der Timer; dann ist das Regal
+voll; und von vorn. Über einen Zehn-Stunden-Flug fallen so mehrere Nachschübe an.
+
+Daraus die zwei Angaben, um die es beim Item-Running wirklich geht:
+
+- **Nächster Nachschub** — Uhrzeit, Abstand und Genauigkeit (`22:07 · in 22 min · ±18 min`).
+  Läuft der Timer bereits, steht das dabei; dann ist der Zeitpunkt am schärfsten.
+- **Abflug** — wann du starten musst, um *zum Nachschub* zu landen. Ist der Nachschub näher
+  als die Flugzeit, sagt die Kachel „jetzt" und dazu, dass du danach ankommst.
+
+Geplant wird mit der **Menge bei Landung**, nicht mit der von jetzt. Sonst fällt ausgerechnet
+das interessanteste Ziel aus der Liste: ein leeres Regal, dessen Timer läuft und das voll ist,
+wenn man ankommt. (Genau das tat die erste Fassung — Mexiko mit `0 jetzt` und `169–200 bei
+Landung` stand gar nicht in der Tabelle.)
+
 ### Vier Modelle treten gegeneinander an
 
 Statt eines fest verdrahteten Modells konkurrieren vier Kandidaten, und **je Messreihe gewinnt
@@ -545,7 +586,7 @@ das, welches auf deren eigener Vergangenheit am besten lag**:
 |---|---|
 | `bleibt wie es ist` | Nichts passiert. Für ein stehendes Regal die richtige Antwort. |
 | `Netto-Trend` | Zu- und Abgänge in einer Zahl. Wo sich Nachschub und Abverkauf bei stundenlangen Messabständen nicht trennen lassen, ehrlicher als zwei Größen, die beide daneben liegen. |
-| `Abverkauf + Nachschub` | Fallende Abschnitte ergeben das Tempo, steigende den Nachschub samt Takt. Der Standard, solange nichts gemessen ist. |
+| `Ausverkauf + Timer` | Der Mechanismus des Spiels, oben beschrieben. Der Standard, solange nichts gemessen ist — er kann aber erst antworten, wenn ein Ausverkauf beobachtet wurde. |
 | `Tempo nach Tageszeit` | Nur Abschnitte aus derselben Tageszeit wie die Ankunft. Abends leert sich ein Regal schneller als nachts. |
 
 Das ist die ehrliche Form von „lernt dazu": die App **misst**, welche Erklärung zu diesem Regal
@@ -643,6 +684,7 @@ travel.html         Flugplaner: Ziele, Erträge, Vorratsvorhersage
 js/travel.js        Länder, Reisezeiten, Ertrag je Flug und Minute
 js/yata.js          YATA-Client für die Auslandsvorräte, defensiv geparst
 js/stats.js         Median, Altersgewichtung, gewichtete Quantile
+js/restock.js       Zyklen finden, Timer eingrenzen, Mechanismus simulieren
 js/travelModels.js  die konkurrierenden Vorhersagemodelle
 js/travelStock.js   Messreihen, Modellwahl, Konformalbereich, Vorhersage
 js/travelPage.js    Verdrahtung der Flugseite
@@ -669,7 +711,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-305 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
+322 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
 Parallelität und Abbruch, Zeitstempel-Deutung, Scan-Ablauf, Markup, Sortierung,
 Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status, Bestandsbewertung, Flugplanung, Modellwahl, Vorratsvorhersage und Persistenz sowie die Key-, CSP-,
 Workflow- und Mobile-Prüfungen aus den Abschnitten oben.

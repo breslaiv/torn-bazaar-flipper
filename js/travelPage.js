@@ -10,7 +10,7 @@ import {
 } from './travel.js?v=10';
 import {
   loadStock, saveStock, recordSnapshot, seriesFor, predict, estimate,
-  chanceAtLeast, backtest,
+  chanceAtLeast, backtest, restockInfo,
 } from './travelStock.js?v=10';
 import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=10';
 import { renderTable } from './table.js?v=10';
@@ -48,6 +48,29 @@ function arrival(code, item, minutes) {
 function confidenceTag(p) {
   if (p.confidence === 'unbekannt') return '<span class="tag">zu wenig Daten</span>';
   return `<span class="tag${p.confidence === 'grob' ? ' warn' : ''}">${escapeHtml(p.confidence)}</span>`;
+}
+
+const clock = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' });
+const fmtClock = (ts) => clock.format(new Date(ts));
+
+/** "in 42 min" oder "vor 8 min" - naeher am Denken als eine Uhrzeit allein. */
+function relative(ts, now = Date.now()) {
+  const minutes = Math.round((ts - now) / 60000);
+  if (minutes >= 0) return `in ${fmtMinutes(minutes)}`;
+  return `vor ${fmtMinutes(-minutes)}`;
+}
+
+/**
+ * Wann losfliegen, um zum Nachschub zu landen?
+ *
+ * Das ist beim Item-Running die eigentliche Entscheidung: nicht wieviel jetzt
+ * dasteht, sondern wann man starten muss, damit man ankommt, wenn das Regal
+ * gerade wieder voll ist.
+ */
+function departure(restock, oneWayMinutes, now = Date.now()) {
+  if (!restock || !Number.isFinite(oneWayMinutes)) return null;
+  const minutes = (restock.at - now) / 60000 - oneWayMinutes;
+  return { minutes, at: now + minutes * 60000, late: minutes < 0 };
 }
 
 /** "12–38" statt einer Zahl, die Genauigkeit vortaeuscht. */
@@ -107,6 +130,29 @@ const TRIP_COLUMNS = [
     }),
   },
   {
+    key: 'restock',
+    label: 'Nächster Nachschub',
+    cell: (t) => {
+      if (!t.best) return { text: '—' };
+      const p = arrival(t.code, t.best, t.oneWayMinutes);
+      if (!p.restock) {
+        // Ohne beobachteten Zyklus gibt es keinen Timer - und ohne Timer
+        // waere jede Zeitangabe erfunden.
+        return {
+          html: '<span class="muted">unbekannt</span>'
+            + (p.cycles ? '' : '<span class="tag">noch kein Ausverkauf gesehen</span>'),
+        };
+      }
+      const spanne = Math.round((p.restock.to - p.restock.from) / 120000);
+      return {
+        html: `${escapeHtml(fmtClock(p.restock.at))}`
+          + `<span class="tag">${escapeHtml(relative(p.restock.at))}</span>`
+          + (spanne > 0 ? `<span class="tag">±${spanne} min</span>` : '')
+          + (p.restock.waiting ? '<span class="tag ok">Timer läuft</span>' : ''),
+      };
+    },
+  },
+  {
     key: 'stock',
     label: 'Bei Landung',
     cell: (t) => {
@@ -137,7 +183,12 @@ const ITEM_COLUMNS = [
   {
     key: 'stock',
     label: 'Vorrat',
-    cell: (r) => ({ text: Number.isFinite(r.quantity) ? fmtUnits.format(r.quantity) : '—' }),
+    cell: (r) => ({
+      html: (Number.isFinite(r.quantity) ? escapeHtml(fmtUnits.format(r.quantity)) : '—')
+        + (Number.isFinite(r.expectedQuantity)
+          ? `<span class="tag">${escapeHtml(fmtUnits.format(r.expectedQuantity))} bei Landung</span>`
+          : ''),
+    }),
   },
 ];
 
@@ -150,14 +201,21 @@ const STAT_COLUMNS = [
     cell: (r) => ({ text: r.e.drainPerMinute ? `${r.e.drainPerMinute.toFixed(1)}/min` : '—' }),
   },
   {
-    key: 'restock',
-    label: 'Nachschub',
-    cell: (r) => ({
-      text: r.e.restockAmount
-        ? `${fmtUnits.format(Math.round(r.e.restockAmount))} alle ${r.e.restockIntervalMinutes
-          ? `${Math.round(r.e.restockIntervalMinutes)} min` : '?'}`
-        : '—',
-    }),
+    key: 'timer',
+    label: 'Timer',
+    // Die Zahl, um die es geht: wie lange es vom Ausverkauf bis zum Nachschub
+    // dauert - und wie genau das inzwischen bekannt ist.
+    cell: (r) => (r.timer
+      ? {
+        text: `${Math.round(r.timer.low)}–${Math.round(r.timer.high)} min`,
+        cls: r.timer.method === 'median' ? 'warn-text' : '',
+      }
+      : { text: r.cycles ? 'Zyklus läuft noch' : 'kein Ausverkauf gesehen' }),
+  },
+  {
+    key: 'cycles',
+    label: 'Zyklen',
+    cell: (r) => ({ text: r.timer ? fmtUnits.format(r.timer.cycles) : '0' }),
   },
   {
     key: 'model',
@@ -198,9 +256,29 @@ function tile(label, value, sub = '', cls = '') {
   </div>`;
 }
 
+/**
+ * Setzt in jedes Item die bei der Landung erwartete Menge.
+ *
+ * Ohne diesen Schritt plant die Seite mit dem Stand von jetzt - und wirft
+ * damit genau das Ziel weg, auf das man wartet: das leere Regal, dessen
+ * Timer laeuft.
+ */
+function withForecast(s) {
+  const out = new Map();
+  for (const [code, items] of stocks) {
+    const minutes = oneWayMinutes(code, s);
+    out.set(code, items.map((item) => {
+      const p = predict(seriesFor(observations, code, item.itemId), minutes ?? 0);
+      return { ...item, expectedQuantity: p.quantity };
+    }));
+  }
+  return out;
+}
+
 function render() {
   const s = settings();
-  const trips = planTrips(stocks, prices, s);
+  const forecast = withForecast(s);
+  const trips = planTrips(forecast, prices, s);
   const withProfit = trips.filter((t) => t.profitPerMinute !== null && t.profitPerMinute > 0);
 
   const best = withProfit[0] || null;
@@ -209,8 +287,19 @@ function render() {
       best ? `${fmtMoney(best.profitPerMinute)} pro Minute` : 'keine Vorräte geladen'),
     tile('Pro Flug', best ? fmtMoney(best.tripProfit) : '—',
       best ? `${best.best.units}× ${best.best.itemName}` : '', 'pos'),
-    tile('Rundflug', best ? fmtMinutes(best.roundTripMinutes) : '—',
-      best ? `einfach ${fmtMinutes(best.oneWayMinutes)}` : ''),
+    (() => {
+      // Die Kachel, die eine Handlung nennt: wann losfliegen, um zum
+      // Nachschub anzukommen.
+      const p = best ? arrival(best.code, best.best, best.oneWayMinutes) : null;
+      const ab = p ? departure(p.restock, best.oneWayMinutes) : null;
+      if (!ab) {
+        return tile('Rundflug', best ? fmtMinutes(best.roundTripMinutes) : '—',
+          best ? `einfach ${fmtMinutes(best.oneWayMinutes)}` : '');
+      }
+      return ab.late
+        ? tile('Abflug', 'jetzt', `Nachschub ${relative(p.restock.at)} — du landest danach`)
+        : tile('Abflug', relative(ab.at), `landet zum Nachschub um ${fmtClock(p.restock.at)}`);
+    })(),
     tile('Einsatz', best ? fmtMoney(best.best.spend) : '—',
       best ? `begrenzt durch ${best.best.limitedBy}` : ''),
   ];
@@ -228,9 +317,10 @@ function render() {
 }
 
 function renderDetail() {
+  const s = settings();
   const code = document.getElementById('countrySelect').value;
-  const items = stocks.get(code) || [];
-  const plan = planCountry(code, items, prices, settings());
+  const items = withForecast(s).get(code) || [];
+  const plan = planCountry(code, items, prices, s);
   renderTable('itemTable', ITEM_COLUMNS, plan.items, { empty: 'Für dieses Land nichts erfasst.' });
 }
 
@@ -244,7 +334,8 @@ function renderStats() {
     const name = (stocks.get(code) || []).find((i) => i.itemId === itemId)?.itemName
       || prices.get(itemId)?.itemName
       || `Item ${itemId}`;
-    rows.push({ code, itemId, itemName: name, e, a: backtest(observations[key]) });
+    const info = restockInfo(observations[key]);
+    rows.push({ code, itemId, itemName: name, e, a: backtest(observations[key]), ...info });
   }
   rows.sort((a, b) => b.e.samples - a.e.samples);
   renderTable('statsTable', STAT_COLUMNS, rows, {
@@ -259,9 +350,10 @@ function renderStats() {
     : null;
 
   document.getElementById('statsHint').textContent = rows.length
-    ? 'Vier Modelle treten je Reihe gegeneinander an; gewählt wird das, welches auf deren '
-      + 'eigener Vergangenheit am besten lag. Die Spalte „Fehler" ist das Maß dafür, '
-      + '„Bereich traf" prüft die angegebene Spanne.'
+    ? 'Der Timer läuft ab dem Ausverkauf, ist je Item verschieden und wird aus den Zyklen '
+      + 'eingegrenzt: jede Null-Strecke sagt „frühestens so lang, spätestens so lang", und '
+      + 'mehrere Zyklen zusammen verengen das. Daneben treten vier Modelle für die Menge an; '
+      + 'die Spalte „Fehler" ist das Maß dafür.'
       + (checks
         ? ` Bisher ${checks} Kontrollen, im Schnitt ${Math.round(fehler)} Stück daneben.`
         : ` Ab ${'vier'} Kontrollen je Reihe darf ein Modell den Standard ablösen.`)

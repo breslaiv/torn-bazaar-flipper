@@ -20,7 +20,7 @@ const at = (m) => T0 + m * MIN;
 
 test('jedes Modell ist benannt und nach Einfachheit geordnet', () => {
   const keys = MODELS.map((m) => m.key);
-  assert.deepEqual(keys, ['flat', 'drift', 'restock', 'daily']);
+  assert.deepEqual(keys, ['flat', 'drift', 'cycle', 'daily']);
   const complexity = MODELS.map((m) => m.complexity);
   assert.deepEqual([...complexity].sort((a, b) => a - b), complexity, 'aufsteigend, sonst greift der Gleichstand falsch');
   assert.ok(MODELS.every((m) => m.label && typeof m.predict === 'function'));
@@ -70,7 +70,7 @@ test('bei nahezu gleichem Fehler gewinnt das einfachere Modell', () => {
   const results = new Map([
     ['flat', { key: 'flat', label: 'bleibt', checks: 10, medianAbsError: 10.4 }],
     ['drift', { key: 'drift', label: 'Trend', checks: 10, medianAbsError: 10 }],
-    ['restock', { key: 'restock', label: 'Nachschub', checks: 10, medianAbsError: 9.9 }],
+    ['cycle', { key: 'cycle', label: 'Zyklus', checks: 10, medianAbsError: 9.9 }],
   ]);
   assert.equal(chooseModel(results).key, 'flat', 'alle innerhalb der Toleranz');
 

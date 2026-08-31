@@ -99,10 +99,15 @@ export function rateItem(item, marketPrice, settings = {}) {
   const net = marketPrice > 0 ? marketPrice * (1 - fee / 100) : null;
   const profitPerUnit = net === null ? null : net - item.cost;
 
+  // Massgeblich ist, was bei der Landung dasteht - nicht, was jetzt dasteht.
+  // Sonst faellt ausgerechnet das interessanteste Ziel heraus: ein leeres
+  // Regal, dessen Timer laeuft und das voll ist, wenn man ankommt.
+  const available = Number.isFinite(item.expectedQuantity) ? item.expectedQuantity : item.quantity;
+
   // Drei Grenzen, und die kleinste gewinnt: Platz im Koffer, Ware im Regal,
   // Geld auf der Hand. Alles andere waere eine Zahl, die man nicht kaufen kann.
   const affordable = budget > 0 && item.cost > 0 ? Math.floor(budget / item.cost) : Infinity;
-  const units = Math.max(0, Math.min(capacity, item.quantity ?? capacity, affordable));
+  const units = Math.max(0, Math.min(capacity, available ?? capacity, affordable));
 
   return {
     ...item,
@@ -113,8 +118,9 @@ export function rateItem(item, marketPrice, settings = {}) {
     units,
     spend: units * item.cost,
     tripProfit: profitPerUnit === null ? null : profitPerUnit * units,
+    expectedQuantity: Number.isFinite(item.expectedQuantity) ? item.expectedQuantity : null,
     limitedBy: units === 0 ? 'nichts' : (
-      units === item.quantity ? 'Vorrat' : (units === affordable ? 'Budget' : 'Kapazität')
+      units === available ? 'Vorrat' : (units === affordable ? 'Budget' : 'Kapazität')
     ),
   };
 }

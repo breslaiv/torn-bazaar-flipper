@@ -23,7 +23,8 @@
 //                Faustregel, die ich mir ausgedacht habe.
 
 import { median, weightAt, weightedQuantile, HALF_LIFE_MINUTES } from './stats.js?v=10';
-import { MODELS, modelByKey, runModel } from './travelModels.js?v=10';
+import { MODELS, modelByKey, runModel, drainRate } from './travelModels.js?v=10';
+import { findCycles, estimateTimer, estimateCapacity, nextRestock } from './restock.js?v=10';
 
 // Weitergereicht, damit Aufrufer nur ein Modul kennen muessen.
 export { weightAt, weightedQuantile, HALF_LIFE_MINUTES };
@@ -127,7 +128,7 @@ export function estimate(series = [], now = Date.now()) {
 export const MIN_CHECKS = 4;
 
 /** Standard, solange nichts gemessen ist: das Modell, mit dem die App startete. */
-export const DEFAULT_MODEL = 'restock';
+export const DEFAULT_MODEL = 'cycle';
 
 /**
  * Prueft alle Modelle gegen die Vergangenheit der Reihe.
@@ -201,15 +202,15 @@ export function rankModels(results) {
   }));
 }
 
-const fallbackChoice = (reason) => ({
-  key: DEFAULT_MODEL,
-  label: modelByKey(DEFAULT_MODEL).label,
+const fallbackChoice = (key, reason) => ({
+  key,
+  label: modelByKey(key)?.label ?? key,
   checks: 0,
   reason,
 });
 
 export function chooseModel(results) {
-  return rankModels(results)[0] || fallbackChoice('zu wenig geprüft');
+  return rankModels(results)[0] || fallbackChoice(DEFAULT_MODEL, 'zu wenig geprüft');
 }
 
 /**
@@ -225,12 +226,20 @@ export function chooseModelFor(results, points, minutesAhead, now) {
   for (const candidate of rankModels(results)) {
     if (runModel(modelByKey(candidate.key), points, minutesAhead, now) !== null) return candidate;
   }
+
+  // Rueckfallkette. Der Standard ist der Zyklus, weil er den Mechanismus des
+  // Spiels abbildet - aber er kann erst antworten, wenn ein Ausverkauf
+  // beobachtet wurde. Vorher traegt der Trend, zur Not die letzte Menge.
+  // Wichtig: zurueckgegeben wird der Schluessel, der tatsaechlich geantwortet
+  // hat. Vorher stand hier immer der Standard, und die Vorhersage lief gegen
+  // ein Modell, das gerade geschwiegen hatte.
+  const geprueft = rankModels(results).length;
   for (const key of [DEFAULT_MODEL, 'drift', 'flat']) {
     if (runModel(modelByKey(key), points, minutesAhead, now) !== null) {
-      return fallbackChoice(rankModels(results).length ? 'Ersatz für ein Modell ohne Grundlage' : 'zu wenig geprüft');
+      return fallbackChoice(key, geprueft ? 'Ersatz für ein Modell ohne Grundlage' : 'zu wenig geprüft');
     }
   }
-  return fallbackChoice('kein Modell mit Grundlage');
+  return fallbackChoice(DEFAULT_MODEL, 'kein Modell mit Grundlage');
 }
 
 /**
@@ -267,6 +276,39 @@ export function conformalInterval(residuals, horizon, level = 0.8) {
 }
 
 /**
+ * Alles zum Nachschub-Zyklus einer Reihe - unabhaengig davon, welches Modell
+ * gerade die Menge vorhersagt.
+ *
+ * Das ist die Auskunft, auf die es beim Item-Running ankommt: nicht wieviel
+ * dasteht, sondern wann wieder nachgelegt wird. Ein leeres Regal mit
+ * bekanntem Timer ist eine bessere Nachricht als ein halbvolles ohne.
+ */
+export function restockInfo(series = [], now = Date.now()) {
+  const points = [...series].sort((a, b) => a[0] - b[0]);
+  if (points.length < 2) return { timer: null, restock: null, cycles: 0, capacity: null };
+
+  const cycles = findCycles(points);
+  const timer = estimateTimer(cycles);
+  const [lastAt, lastQuantity] = points[points.length - 1];
+  const laufend = cycles[cycles.length - 1];
+
+  return {
+    timer,
+    cycles: cycles.length,
+    openCycle: Boolean(laufend?.open),
+    capacity: estimateCapacity(points, cycles),
+    drainPerMinute: drainRate(points),
+    restock: nextRestock({
+      quantity: lastQuantity,
+      at: lastAt,
+      drainPerMinute: drainRate(points),
+      timer,
+      lastSelloutAt: laufend && lastQuantity === 0 ? laufend.selloutTo : null,
+    }, now),
+  };
+}
+
+/**
  * Vorhersage: gewaehltes Modell, Bereich aus gemessenen Fehlern, Guete aus
  * bestandenen Kontrollen.
  */
@@ -284,6 +326,9 @@ export function predict(series, minutesAhead, now = Date.now()) {
       model: null,
       estimate: e,
       accuracy: { checks: 0, medianAbsError: null, coverage: null },
+      timer: null,
+      restock: null,
+      cycles: 0,
     };
   }
 
@@ -350,6 +395,7 @@ export function predict(series, minutesAhead, now = Date.now()) {
     model: choice,
     estimate: e,
     accuracy,
+    ...restockInfo(points, now),
   };
 }
 

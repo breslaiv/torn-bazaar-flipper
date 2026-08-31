@@ -85,3 +85,26 @@ test('jedes Land der Tabelle hat eine Zeit', () => {
     assert.ok(oneWayMinutes(c.code, base) > 0, c.name);
   }
 });
+
+test('geplant wird mit der Menge bei Landung, nicht mit der von jetzt', () => {
+  // Der Fall aus dem Browsertest: ein leeres Regal, dessen Timer laeuft. Nach
+  // dem Stand von jetzt faellt es aus der Planung - dabei ist es genau das
+  // Ziel, auf das man wartet.
+  const leerJetztVollSpaeter = item({ quantity: 0, expectedQuantity: 100 });
+  const r = rateItem(leerJetztVollSpaeter, 1000, base);
+  assert.equal(r.units, 5, 'die Kapazitaet bindet, nicht das leere Regal');
+  assert.ok(r.tripProfit > 0);
+
+  // Und andersherum: was jetzt voll ist, aber bis zur Landung leergekauft
+  // wird, darf keinen Ertrag versprechen.
+  const vollJetztLeerSpaeter = rateItem(item({ quantity: 100, expectedQuantity: 0 }), 1000, base);
+  assert.equal(vollJetztLeerSpaeter.units, 0);
+  assert.equal(vollJetztLeerSpaeter.limitedBy, 'nichts');
+});
+
+test('ohne Prognose gilt weiterhin der aktuelle Vorrat', () => {
+  const r = rateItem(item({ quantity: 3 }), 1000, base);
+  assert.equal(r.units, 3);
+  assert.equal(r.limitedBy, 'Vorrat');
+  assert.equal(r.expectedQuantity, null);
+});

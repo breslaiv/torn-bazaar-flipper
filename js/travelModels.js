@@ -11,6 +11,7 @@
 // das einfachere.
 
 import { weightAt, weightedQuantile, median } from './stats.js?v=10';
+import { findCycles, estimateTimer, estimateCapacity, simulate } from './restock.js?v=10';
 
 const MINUTE = 60 * 1000;
 
@@ -33,6 +34,12 @@ function weightedRate(spans, points, pick) {
     .map((s) => ({ value: pick(s), weight: weightAt(s.at, reference(points)) }))
     .filter((s) => s.value !== null && s.value !== undefined);
   return weightedQuantile(samples, 0.5);
+}
+
+/** Gewichtetes Abverkaufstempo aus den fallenden Abschnitten. */
+export function drainRate(points) {
+  const spans = intervals(points).filter((s) => s.change < 0);
+  return weightedRate(spans, points, (s) => -s.change / s.minutes) ?? 0;
 }
 
 /**
@@ -65,29 +72,34 @@ export const MODELS = [
     },
   },
   {
-    key: 'restock',
-    label: 'Abverkauf + Nachschub',
+    key: 'cycle',
+    label: 'Ausverkauf + Timer',
     complexity: 2,
-    // Das urspruengliche Modell: fallende Abschnitte ergeben das Tempo,
-    // steigende den Nachschub samt Takt.
-    predict: (points, horizon, now, minutesAhead) => {
-      const spans = intervals(points);
-      const drain = weightedRate(spans.filter((s) => s.change < 0), points, (s) => -s.change / s.minutes) ?? 0;
-      const rises = spans.filter((s) => s.change > 0);
-      let quantity = points[points.length - 1][1] - drain * horizon;
+    // Der Mechanismus des Spiels: erreicht ein Item 0, laeuft ein Timer los,
+    // und danach ist das Regal wieder voll. Der Zyklus haengt am Ausverkauf,
+    // nicht an der Uhr - deshalb wird hier nicht gerechnet, sondern
+    // vorwaerts simuliert.
+    predict: (points, horizon, now) => {
+      const cycles = findCycles(points);
+      const timer = estimateTimer(cycles);
+      if (!timer) return null;
 
-      if (rises.length >= 2) {
-        const amount = weightedRate(rises, points, (s) => s.change);
-        const gaps = [];
-        for (let i = 1; i < rises.length; i++) gaps.push((rises[i].at - rises[i - 1].at) / MINUTE);
-        const interval = median(gaps);
-        const lastRestock = rises[rises.length - 1].at;
-        if (amount && interval > 0) {
-          const since = (now - lastRestock) / MINUTE + Math.max(0, minutesAhead);
-          quantity += Math.floor(since / interval) * amount;
-        }
-      }
-      return quantity;
+      const drain = drainRate(points);
+      const capacity = estimateCapacity(points, cycles);
+      const [lastAt, lastQuantity] = points[points.length - 1];
+
+      // Wann zuletzt ausverkauft war, bestimmt den laufenden Timer.
+      const laufend = cycles[cycles.length - 1];
+      const lastSelloutAt = laufend && lastQuantity === 0 ? laufend.selloutTo : null;
+
+      return simulate({
+        quantity: lastQuantity,
+        from: lastAt,
+        drainPerMinute: drain,
+        timerMinutes: timer.minutes,
+        capacity,
+        lastSelloutAt,
+      }, lastAt + horizon * MINUTE).quantity;
     },
   },
   {
