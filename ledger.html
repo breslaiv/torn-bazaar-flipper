@@ -69,20 +69,29 @@
     </div>
   </details>
 
-  <details class="panel">
+  <details class="panel" id="importPanel">
     <summary>Aus dem Torn-Log importieren</summary>
     <p class="hint">
       Liest dein persönliches Torn-Log und legt Käufe und Verkäufe an.
       <strong>Torn verlangt dafür einen Key mit Full Access</strong> — laut offizieller
       API-Spec, Limited reicht nicht. Das ist der weiteste Zugriff, den Torn kennt: ein
       solcher Key liest auch Geld, Inventar und Nachrichten. Leg dafür besser einen
-      eigenen Key an, den du jederzeit löschen kannst. Er bleibt im Browser.
+      eigenen Key an, den du jederzeit löschen kannst — hier eintragen genügt, es ist
+      derselbe Key wie in den Scanner-Einstellungen. Er bleibt im Browser.
     </p>
     <div class="grid">
+      <label class="field">Torn API-Key (Full Access)
+        <input type="password" id="ledgerTornKey" autocomplete="off" placeholder="hier eintragen">
+        <span class="hint" id="keyState"></span>
+      </label>
       <label class="field">Einträge lesen (max.)
         <input type="number" id="logMax" value="300" min="100" max="2000" step="100">
         <span class="hint">100 pro Anfrage, gedrosselt auf 80/Minute.</span>
       </label>
+    </div>
+    <div class="actions">
+      <button id="saveKeyBtn">Key speichern</button>
+      <button id="clearKeyBtn">Key löschen</button>
     </div>
     <div class="actions">
       <button id="importLogBtn" class="primary">Log lesen und prüfen</button>

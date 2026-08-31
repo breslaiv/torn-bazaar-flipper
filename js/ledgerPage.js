@@ -1,4 +1,4 @@
-import { loadSettings } from './storage.js';
+import { loadSettings, saveSettings } from './storage.js';
 import {
   makeEvent, matchFifo, summarise, filterByPeriod, profitByItem,
 } from './ledger.js';
@@ -148,12 +148,34 @@ function reload() {
   render();
 }
 
+// ---------- Key ----------
+
+// Derselbe Key wie in den Scanner-Einstellungen, nur hier direkt erreichbar:
+// wer importieren will, soll nicht erst die Seite wechseln muessen.
+function renderKeyState() {
+  const stored = (loadSettings().tornKey || '').trim();
+  const state = document.getElementById('keyState');
+  state.textContent = stored
+    ? `Hinterlegt: …${stored.slice(-4)}. Wird nur an api.torn.com gesendet.`
+    : 'Noch keiner hinterlegt. Ohne Key kein Import.';
+  state.className = stored ? 'hint' : 'hint warn-text';
+}
+
+function saveKey() {
+  const value = document.getElementById('ledgerTornKey').value.trim();
+  saveSettings({ ...loadSettings(), tornKey: value });
+  document.getElementById('ledgerTornKey').value = '';
+  renderKeyState();
+  setStatus(value ? 'Key gespeichert.' : 'Key entfernt.', 'ok');
+}
+
 // ---------- Torn-Log ----------
 
 async function importFromLog() {
   const settings = loadSettings();
   if (!settings.tornKey) {
-    setStatus('Kein Torn-Key hinterlegt. Trag ihn in den Scanner-Einstellungen ein.', 'error');
+    setStatus('Kein Torn-Key hinterlegt — trag ihn im Feld darüber ein und speichere.', 'error');
+    document.getElementById('ledgerTornKey').focus();
     return;
   }
 
@@ -335,6 +357,11 @@ function applyPastedJson() {
 
 function init() {
   document.getElementById('periodSelect').addEventListener('change', render);
+  document.getElementById('saveKeyBtn').addEventListener('click', saveKey);
+  document.getElementById('clearKeyBtn').addEventListener('click', () => {
+    document.getElementById('ledgerTornKey').value = '';
+    saveKey();
+  });
   document.getElementById('importLogBtn').addEventListener('click', importFromLog);
   document.getElementById('applyImportBtn').addEventListener('click', applyImport);
   document.getElementById('addManualBtn').addEventListener('click', addManual);
@@ -361,7 +388,12 @@ function init() {
     setStatus('Position gelöscht.', 'ok');
   });
 
+  renderKeyState();
   reload();
+
+  // Bei leerem Ledger fuehren sonst vier Null-Kacheln und zwei leere Tabellen,
+  // bevor man ueberhaupt zum Einrichten kommt.
+  document.getElementById('importPanel').open = events.length === 0;
 }
 
 init();

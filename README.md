@@ -133,6 +133,10 @@ Stichwort auf Kauf und Verkauf ab und lässt `/user/log` dann **serverseitig** d
 (`log=5360,5361,…`). Damit blättert der Client keine irrelevanten Kategorien durch, und die
 Zuordnung stammt aus Torns eigener Benennung statt aus einer Vermutung.
 
+Der Key wird direkt im Import-Bereich der Ledger-Seite eingetragen — es ist derselbe wie in
+den Scanner-Einstellungen, beide Felder schreiben in denselben Eintrag. Bei leerem Ledger
+ist der Bereich schon aufgeklappt, sonst stünden vier Null-Kacheln vor dem Einrichten.
+
 Der Bericht vor dem Übernehmen zeigt beides: welche Log-Typen zugeordnet wurden — mit Id und
 Torns Originaltitel, also nachprüfbar — und was aus welchem Grund liegen blieb. Passt eine
 Zuordnung nicht, ist das eine Zeile in `RULES` in `js/tornlog.js`. Findet sich kein einziger
