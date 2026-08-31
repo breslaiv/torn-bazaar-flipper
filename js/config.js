@@ -68,6 +68,10 @@ export const DEFAULTS = {
   ledgerAutoImport: false,
 
   // Flugplanung
+  // Adresse der Vorratsquelle. Konfigurierbar, weil diese App die genaue
+  // Route nicht kennen kann - nur der Host ist durch die CSP festgelegt.
+  yataUrl: 'https://yata.yt/api/v1/travel/export/',
+  yataKey: '',                 // falls YATA einen Key verlangt
   travelCapacity: 5,           // Items pro Flug: 5 ohne Koffer, bis 19 mit
   travelAirstrip: 'standard',  // siehe AIRSTRIPS in js/travel.js
   travelTimes: {},             // gemessene Einwegzeiten je Land, schlagen die Tabelle

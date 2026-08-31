@@ -2,7 +2,9 @@
 
 import { loadSettings, saveSettings } from './storage.js?v=9';
 import { fetchMarketplace } from './weav3r.js?v=9';
-import { fetchTravelStocks, YataError } from './yata.js?v=9';
+import {
+  fetchTravelStocks, parseTravelExport, travelUrl, YataError, YATA_URL,
+} from './yata.js?v=9';
 import {
   COUNTRIES, AIRSTRIPS, countryName, oneWayMinutes, planTrips, planCountry,
 } from './travel.js?v=9';
@@ -231,6 +233,62 @@ function fillItemList() {
   list.innerHTML = [...seen.values()].map((n) => `<option value="${escapeHtml(n)}"></option>`).join('');
 }
 
+/**
+ * Uebernimmt einen gelesenen Export - egal ob er ueber das Netz kam oder aus
+ * der Zwischenablage. Beides fuehrt durch denselben Parser, damit ein
+ * eingefuegter Stand exakt so gerechnet wird wie ein abgerufener.
+ */
+function applyExport({ countries, updated: stamps, unknown }, quelle) {
+  stocks = countries;
+  updated = stamps;
+
+  // Jede Uebernahme ist zugleich eine Messung - so entsteht die Reihe, aus
+  // der spaeter die Vorhersage kommt, ohne dass jemand etwas eintippen muss.
+  for (const [code, items] of countries) {
+    observations = recordSnapshot(observations, code, items, stamps.get(code) || Date.now());
+  }
+  saveStock(observations);
+
+  fillItemList();
+  render();
+
+  const newest = [...updated.values()].sort((a, b) => b - a)[0];
+  document.getElementById('sourceMsg').textContent = `${countries.size} Länder ${quelle}`
+    + (newest ? `, Stand ${new Date(newest).toLocaleTimeString('de-DE')}` : '')
+    + (unknown.length ? `, nicht zugeordnet: ${unknown.join(', ')}` : '');
+}
+
+function applyPasted() {
+  const msg = document.getElementById('pasteMsg');
+  const text = document.getElementById('pasteJson').value.trim();
+  if (!text) {
+    msg.textContent = 'Nichts eingefügt.';
+    return;
+  }
+
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (err) {
+    msg.textContent = `Kein gültiges JSON: ${err.message}`;
+    return;
+  }
+
+  const parsed = parseTravelExport(data);
+  if (!parsed.countries.size) {
+    // Die Schluessel zu nennen ist hier das Wertvollste: daran laesst sich
+    // ablesen, welche Form die Antwort wirklich hat.
+    msg.textContent = 'Kein Land erkannt.'
+      + (parsed.unknown.length ? ` Gefundene Schlüssel: ${parsed.unknown.slice(0, 8).join(', ')}` : '');
+    return;
+  }
+
+  applyExport(parsed, 'aus der Zwischenablage');
+  document.getElementById('pasteJson').value = '';
+  msg.textContent = `${parsed.countries.size} Länder übernommen.`;
+  setStatus('Vorräte aus der Zwischenablage übernommen.', 'ok');
+}
+
 async function refresh() {
   const btn = document.getElementById('refreshBtn');
   const msg = document.getElementById('sourceMsg');
@@ -239,31 +297,17 @@ async function refresh() {
 
   try {
     await loadPrices();
-    const { countries, updated: stamps, unknown } = await fetchTravelStocks();
-    stocks = countries;
-    updated = stamps;
-
-    // Jeder Abruf ist zugleich eine Messung - so entsteht die Reihe, aus der
-    // spaeter die Vorhersage kommt, ohne dass jemand etwas eintippen muss.
-    for (const [code, items] of countries) {
-      observations = recordSnapshot(observations, code, items, stamps.get(code) || Date.now());
-    }
-    saveStock(observations);
-
-    fillItemList();
-    render();
-
-    const newest = [...updated.values()].sort((a, b) => b - a)[0];
-    msg.textContent = `${countries.size} Länder von yata.yt`
-      + (newest ? `, Stand ${new Date(newest).toLocaleTimeString('de-DE')}` : '')
-      + (unknown.length ? `, ${unknown.length} unbekannte Schlüssel übersprungen` : '');
+    applyExport(await fetchTravelStocks({ settings: settings() }), 'von yata.yt');
     setStatus('Vorräte geladen.', 'ok');
   } catch (err) {
     // Der wahrscheinlichste Fall, und deshalb kein Abbruch: Preise und Zeiten
     // stehen, von Hand erfasste Vorraete auch. Nur die fremde Quelle fehlt.
     msg.textContent = err instanceof YataError ? err.message : String(err.message || err);
+    // Der Weg ueber die Zwischenablage steht genau dafuer bereit - also
+    // aufklappen statt nur davon zu schreiben.
+    document.getElementById('sourcePanel').open = true;
     render();
-    setStatus('Vorräte nicht geladen — von Hand erfassen geht weiter.', 'error');
+    setStatus('Vorräte nicht geladen — Quelle prüfen oder Antwort einfügen.', 'error');
   } finally {
     btn.disabled = false;
   }
@@ -377,6 +421,29 @@ function init() {
     render();
   });
   document.getElementById('refreshBtn').addEventListener('click', refresh);
+
+  document.getElementById('yataUrl').value = s.yataUrl || YATA_URL;
+  document.getElementById('saveSourceBtn').addEventListener('click', () => {
+    const url = document.getElementById('yataUrl').value.trim() || YATA_URL;
+    const key = document.getElementById('yataKey').value.trim();
+    const saveMsg = document.getElementById('sourceSaveMsg');
+    try {
+      // Vor dem Speichern pruefen: eine Adresse, die die CSP ohnehin blockt,
+      // waere spaeter nur ein rätselhafter Netzwerkfehler.
+      travelUrl({ yataUrl: url, yataKey: key });
+    } catch (err) {
+      saveMsg.textContent = err.message;
+      return;
+    }
+    saveSettings({ ...settings(), yataUrl: url, yataKey: key });
+    document.getElementById('yataKey').value = '';
+    saveMsg.textContent = key ? 'Adresse und Key gespeichert.' : 'Adresse gespeichert.';
+  });
+  document.getElementById('openSourceBtn').addEventListener('click', () => {
+    // Ohne Key: der gehoert nicht in einen Tab, den man mit jemandem teilt.
+    window.open(String(travelUrl({ yataUrl: settings().yataUrl })), '_blank', 'noopener');
+  });
+  document.getElementById('applyPasteBtn').addEventListener('click', applyPasted);
   document.getElementById('countrySelect').addEventListener('change', renderDetail);
   document.getElementById('addStockBtn').addEventListener('click', addManualStock);
   document.getElementById('saveTimesBtn').addEventListener('click', saveTimes);

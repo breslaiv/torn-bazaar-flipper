@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTravelExport, fetchTravelStocks, YataError } from '../js/yata.js';
+import {
+  parseTravelExport, fetchTravelStocks, travelUrl, YataError, YATA_URL,
+} from '../js/yata.js';
 
 // So sieht der Export laut YATA-Doku aus. Da die Form nicht vertraglich
 // zugesichert ist, muss der Parser auch die naheliegenden Abweichungen
@@ -94,6 +96,56 @@ test('HTTP-Fehler kommen mit ihrem Status an', async () => {
   globalThis.fetch = async () => ({ ok: false, status: 503 });
   try {
     await assert.rejects(fetchTravelStocks(), /503/);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+// ---------- Adresse ----------
+
+test('ohne Angabe gilt die Vorgabe', () => {
+  assert.equal(String(travelUrl({})), YATA_URL);
+  assert.equal(String(travelUrl({ yataUrl: '  ' })), YATA_URL);
+});
+
+test('ein Key haengt als Query-Parameter dran', () => {
+  // Als Header wuerde er einen CORS-Preflight ausloesen - denselben Grund
+  // gibt es schon bei weav3r und Torn.
+  const url = travelUrl({ yataKey: 'abc123' });
+  assert.equal(url.searchParams.get('key'), 'abc123');
+  assert.ok(String(url).startsWith('https://yata.yt/'));
+});
+
+test('eine andere Route auf demselben Host ist erlaubt', () => {
+  // Der Sinn der Einstellung: aendert YATA die Route, laesst sie sich ohne
+  // neuen Deploy korrigieren.
+  assert.equal(String(travelUrl({ yataUrl: 'https://yata.yt/api/v1/travel/export/v2/' })),
+    'https://yata.yt/api/v1/travel/export/v2/');
+});
+
+test('ein fremder Host wird benannt, nicht durchgereicht', () => {
+  // Die CSP dieser Seiten laesst nur yata.yt durch. Ohne diese Pruefung
+  // saehe die Blockade spaeter wie ein Netzwerkfehler aus.
+  for (const url of ['https://example.com/export/', 'http://yata.yt/api/', 'https://evil.yata.yt.example/']) {
+    assert.throws(() => travelUrl({ yataUrl: url }), (err) => {
+      assert.ok(err instanceof YataError);
+      assert.match(err.message, /yata\.yt/);
+      return true;
+    }, url);
+  }
+  assert.throws(() => travelUrl({ yataUrl: 'kaputt' }), /keine gültige Adresse/);
+});
+
+test('die Einstellungen bestimmen, was abgerufen wird', async () => {
+  const original = globalThis.fetch;
+  let gesehen = null;
+  globalThis.fetch = async (url) => {
+    gesehen = String(url);
+    return { ok: true, json: async () => EXPORT };
+  };
+  try {
+    await fetchTravelStocks({ settings: { yataUrl: 'https://yata.yt/api/v1/travel/export/', yataKey: 'k' } });
+    assert.equal(gesehen, 'https://yata.yt/api/v1/travel/export/?key=k');
   } finally {
     globalThis.fetch = original;
   }

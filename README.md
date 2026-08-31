@@ -479,6 +479,18 @@ diese App. Der Fall ist eingeplant: schlägt es fehl, sagt die Meldung CORS als 
 Ursache, die Seite rechnet mit von Hand erfassten Vorräten weiter, und **API-Diagnose → YATA
 testen** zeigt, was tatsächlich zurückkam.
 
+Zwei Stellschrauben dafür, unter *Quelle*:
+
+- **Die Adresse ist einstellbar.** Ändert YATA die Route, wird sie hier korrigiert statt per
+  Deploy. Der Host bleibt auf `yata.yt` festgenagelt — alles andere blockt die CSP ohnehin,
+  und ein früh benannter Fehler ist besser als ein rätselhafter Netzwerkfehler später.
+  Ein Key, falls verlangt, wandert als Query-Parameter mit (ein Header löste einen
+  CORS-Preflight aus).
+- **Antwort einfügen.** Adresse in einem normalen Tab öffnen, JSON kopieren, einfügen. Es läuft
+  durch denselben Parser wie ein Abruf und legt dieselbe Messung an — der Weg funktioniert
+  also auch dann, wenn der Browser den direkten Zugriff nie erlaubt. Wird kein Land erkannt,
+  nennt die Meldung die gefundenen Schlüssel; daran lässt sich die tatsächliche Form ablesen.
+
 ### Vorhersage
 
 Ein Vorrat bewegt sich in zwei Richtungen: Spieler kaufen ihn leer, und in festen Abständen
@@ -576,7 +588,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-264 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
+269 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
 Parallelität und Abbruch, Zeitstempel-Deutung, Scan-Ablauf, Markup, Sortierung,
 Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status, Bestandsbewertung, Flugplanung, Vorratsvorhersage und Persistenz sowie die Key-, CSP-,
 Workflow- und Mobile-Prüfungen aus den Abschnitten oben.

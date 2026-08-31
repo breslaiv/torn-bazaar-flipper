@@ -1,7 +1,7 @@
 import { loadSettings, saveSettings } from './storage.js?v=9';
 import { fetchHealth, fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js?v=9';
 import { fetchKeyInfo } from './torn.js?v=9';
-import { fetchTravelStocks, YATA_BASE, YATA_TRAVEL_PATH } from './yata.js?v=9';
+import { fetchTravelStocks, travelUrl } from './yata.js?v=9';
 import { countryName } from './travel.js?v=9';
 import { setStatus, fmtMoney, showVersion } from './ui.js?v=9';
 
@@ -109,12 +109,12 @@ async function runAll() {
 async function testYata() {
   reset();
   emit(`Origin dieser Seite : ${location.origin}`);
-  emit(`Ziel                : ${YATA_BASE}${YATA_TRAVEL_PATH}`);
+  emit(`Ziel                : ${travelUrl({ yataUrl: loadSettings().yataUrl })}`);
   emit();
   setStatus('Frage yata.yt…');
 
   const ok = await check('GET yata.yt/api/v1/travel/export/', async () => {
-    const { countries, updated, unknown } = await fetchTravelStocks();
+    const { countries, updated, unknown } = await fetchTravelStocks({ settings: loadSettings() });
     const lines = [`${countries.size} Länder mit Vorräten`];
     for (const [code, items] of countries) {
       const stamp = updated.get(code);

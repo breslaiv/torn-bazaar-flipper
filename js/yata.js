@@ -17,15 +17,47 @@
 
 import { countryCode } from './travel.js?v=9';
 
-export const YATA_BASE = 'https://yata.yt/api/v1';
-export const YATA_TRAVEL_PATH = '/travel/export/';
-
 export class YataError extends Error {
   constructor(message, status = 0) {
     super(message);
     this.name = 'YataError';
     this.status = status;
   }
+}
+
+export const YATA_BASE = 'https://yata.yt/api/v1';
+export const YATA_TRAVEL_PATH = '/travel/export/';
+export const YATA_URL = `${YATA_BASE}${YATA_TRAVEL_PATH}`;
+
+// Die CSP dieser Seiten laesst genau einen fremden Host durch. Eine andere
+// Adresse waere im Browser wirkungslos, und der Fehler saehe aus wie ein
+// Netzwerkproblem - deshalb wird sie hier abgefangen und benannt.
+const ALLOWED_HOST = 'yata.yt';
+
+/**
+ * Baut die Abrufadresse aus den Einstellungen.
+ *
+ * Konfigurierbar, weil die genaue Route dieser App nicht bekannt sein kann:
+ * aendert YATA sie, oder stimmt die Vorgabe nicht, laesst sie sich hier
+ * korrigieren, statt auf einen neuen Deploy zu warten.
+ */
+export function travelUrl(settings = {}) {
+  const raw = String(settings.yataUrl || '').trim() || YATA_URL;
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new YataError(`"${raw}" ist keine gültige Adresse.`);
+  }
+  if (url.protocol !== 'https:' || url.hostname !== ALLOWED_HOST) {
+    throw new YataError(
+      `Nur https://${ALLOWED_HOST}/… ist erlaubt — die Seite darf laut ihrer eigenen `
+      + 'Sicherheitsregel (CSP) keine anderen Server ansprechen.',
+    );
+  }
+  const key = String(settings.yataKey || '').trim();
+  if (key) url.searchParams.set('key', key);
+  return url;
 }
 
 function num(v) {
@@ -90,10 +122,11 @@ export function parseTravelExport(data) {
 }
 
 /** Holt die aktuellen Auslandsvorraete. */
-export async function fetchTravelStocks({ signal, base = YATA_BASE } = {}) {
+export async function fetchTravelStocks({ signal, settings = {} } = {}) {
+  const url = travelUrl(settings);
   let res;
   try {
-    res = await fetch(`${base}${YATA_TRAVEL_PATH}`, { headers: { Accept: 'application/json' }, signal });
+    res = await fetch(url, { headers: { Accept: 'application/json' }, signal });
   } catch (err) {
     if (err.name === 'AbortError') throw err;
     throw new YataError(
