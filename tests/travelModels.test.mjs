@@ -9,7 +9,7 @@ globalThis.localStorage = fakeStorage();
 
 const { MODELS, modelByKey, runModel, clampQuantity } = await import('../js/travelModels.js');
 const {
-  evaluateModels, chooseModel, chooseModelFor, rankModels, conformalInterval,
+  evaluateModels, chooseModel, chooseModelFor, rankModels, scoreModels, conformalInterval,
   predict, MIN_CHECKS, DEFAULT_MODEL,
 } = await import('../js/travelStock.js');
 
@@ -169,4 +169,78 @@ test('rankModels ordnet nach Fehler, mit Einfachheit als Gleichstand', () => {
   ]);
   const rang = rankModels(results).map((r) => r.key);
   assert.deepEqual(rang, ['flat', 'drift', 'daily'], 'zwei gleichauf, der klar schlechtere hinten');
+});
+
+// ---------- Bewertung in der richtigen Lage ----------
+
+/** Ein Regal, das leerlaeuft, 60 Minuten leer bleibt und dann voll ist. */
+function zyklusReihe(zyklen = 3) {
+  const punkte = [];
+  let m = 0;
+  for (let i = 0; i < zyklen; i++) {
+    punkte.push([m, 200], [m + 10, 150], [m + 20, 100], [m + 30, 50], [m + 40, 0]);
+    // Alle zehn Minuten gemessen, waehrend der Timer laeuft.
+    for (let leer = 50; leer < 100; leer += 10) punkte.push([m + leer, 0]);
+    m += 100;
+  }
+  punkte.push([m, 200]);
+  return series(punkte);
+}
+
+test('der Mittelwert laesst den einen grossen Fehler durch, den der Median schluckt', () => {
+  // Der Fund aus dem Browsertest: bei zehnminuetigen Messungen ist ein leeres
+  // Regal fuenfmal hintereinander leer und einmal voll. "Bleibt wie es ist"
+  // liegt in fuenf von sechs Faellen exakt richtig - der Median seines
+  // Fehlers ist null, und damit gewinnt es jeden Vergleich. Nur ist es genau
+  // im entscheidenden Moment um 200 daneben.
+  const reihe = zyklusReihe();
+  const roh = evaluateModels(reihe);
+  const ausLeer = scoreModels(roh, { fromEmpty: true });
+
+  const flat = ausLeer.get('flat');
+  assert.equal(flat.medianAbsError, 0, 'der Median sieht das Problem nicht');
+  assert.ok(flat.meanAbsError > 10, `der Mittelwert schon: ${flat.meanAbsError}`);
+});
+
+test('aus dem leeren Regal gewinnt das Modell, das den Nachschub kennt', () => {
+  const reihe = zyklusReihe();
+  const gewaehlt = chooseModel(scoreModels(evaluateModels(reihe), { fromEmpty: true }));
+  assert.equal(gewaehlt.key, 'cycle');
+});
+
+test('die Bewertung nimmt nur Kontrollen aus derselben Lage', () => {
+  const roh = evaluateModels(zyklusReihe());
+  const ausLeer = scoreModels(roh, { fromEmpty: true });
+  const ausVoll = scoreModels(roh, { fromEmpty: false });
+
+  assert.ok(ausLeer.get('flat').checks > 0 && ausVoll.get('flat').checks > 0);
+  assert.notEqual(ausLeer.get('flat').checks, ausVoll.get('flat').checks);
+  assert.equal(ausLeer.get('flat').matched, 'lage');
+});
+
+test('bei zu wenigen passenden Kontrollen wird die Grundlage verbreitert', () => {
+  // Lieber eine schmale Grundlage als keine - aber es steht dabei, welche.
+  const kaumLeer = series([[0, 200], [10, 150], [20, 100], [30, 50], [40, 20], [50, 10]]);
+  const scored = scoreModels(evaluateModels(kaumLeer), { fromEmpty: true });
+  assert.equal(scored.get('flat').matched, 'alle');
+});
+
+test('bei passender Flugdauer wird auf den Horizont geschaerft', () => {
+  const reihe = zyklusReihe(4);
+  const scored = scoreModels(evaluateModels(reihe), { fromEmpty: true, horizon: 20 });
+  assert.equal(scored.get('flat').matched, 'lage+horizont');
+  assert.ok(scored.get('flat').residuals.every((r) => r.horizon >= 20 / 3 && r.horizon <= 60));
+});
+
+test('ein leeres Regal mit laufendem Timer bleibt ein Ziel', () => {
+  // Das Ergebnis, auf das alles hinauslaeuft: wer jetzt hinschaut, sieht
+  // nichts - wer in einer halben Stunde landet, ein volles Regal.
+  const reihe = zyklusReihe();
+  const jetzt = reihe[reihe.length - 1][0];
+  const leerJetzt = [...reihe.slice(0, -1), [jetzt, 0]];
+
+  const p = predict(leerJetzt, 30, jetzt + 5 * 60000);
+  assert.equal(p.model.key, 'cycle');
+  assert.ok(p.quantity > 0, `bei Landung ${p.quantity} — der Nachschub fehlt in der Rechnung`);
+  assert.ok(p.restock, 'und der Zeitpunkt gehört dazu');
 });

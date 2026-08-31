@@ -10,7 +10,7 @@ import {
 } from './travel.js?v=10';
 import {
   loadStock, saveStock, recordSnapshot, seriesFor, predict, estimate,
-  chanceAtLeast, backtest, restockInfo,
+  chanceAtLeast, backtest, restockInfo, mergeStock,
 } from './travelStock.js?v=10';
 import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=10';
 import { renderTable } from './table.js?v=10';
@@ -442,6 +442,40 @@ function applyPasted() {
   setStatus('Vorräte aus der Zwischenablage übernommen.', 'ok');
 }
 
+/**
+ * Liest die von GitHub Actions gesammelte Historie.
+ *
+ * Damit hat die Vorhersage schon Messreihen, bevor der Nutzer das erste Mal
+ * selbst nachgesehen hat - und sie waechst weiter, waehrend niemand die Seite
+ * offen hat. Die Datei liegt neben der Seite, also same-origin: kein CORS,
+ * keine zusaetzliche Domain in der Sicherheitsregel.
+ */
+async function loadCollected() {
+  const msg = document.getElementById('collectedMsg');
+  try {
+    const res = await fetch(`data/travel-stock.json?t=${Math.floor(Date.now() / 60000)}`, {
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const remote = data?.series && typeof data.series === 'object' ? data.series : {};
+
+    const before = Object.values(observations).reduce((s, x) => s + x.length, 0);
+    observations = saveStock(mergeStock(observations, remote));
+    const after = Object.values(observations).reduce((s, x) => s + x.length, 0);
+
+    render();
+    msg.textContent = data.collectedAt
+      ? `${Object.keys(remote).length} gesammelte Reihen, zuletzt ${relative(data.collectedAt)}`
+        + `${after > before ? `, ${after - before} neue Messpunkte` : ''}.`
+      : 'Noch nichts gesammelt — der Sammler läuft nach Plan in GitHub Actions.';
+  } catch (err) {
+    // Kein Grund für eine Fehlermeldung: die Seite funktioniert ohne die
+    // Sammlung, sie lernt nur langsamer.
+    msg.textContent = `Gesammelte Historie nicht verfügbar (${err.message}).`;
+  }
+}
+
 async function refresh() {
   const btn = document.getElementById('refreshBtn');
   const msg = document.getElementById('sourceMsg');
@@ -618,6 +652,7 @@ function init() {
     fillItemList();
     render();
   });
+  loadCollected();
   render();
 }
 

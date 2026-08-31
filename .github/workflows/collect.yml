@@ -1,0 +1,57 @@
+# Sammelt die Auslandsvorraete nach Plan, damit die Vorhersage nicht davon
+# abhaengt, dass jemand die Seite offen hat.
+#
+# Warum hier und nicht im Browser: eine Messreihe entsteht nur, wenn jemand
+# nachsieht. Nachts sieht niemand nach, und ausgerechnet das Fenster, in dem
+# ein Restock-Timer ablaeuft, ist selten das Fenster, in dem man aufs Handy
+# schaut. Serverseitig gibt es ausserdem kein CORS - der Sammler laeuft auch
+# dann, wenn yata.yt Zugriffe aus fremden Seiten verweigert.
+
+name: Vorräte sammeln
+
+on:
+  schedule:
+    # Alle zehn Minuten. GitHub haelt das nicht auf die Minute genau ein und
+    # laesst unter Last auch mal einen Lauf aus - fuer die Schaetzung ist das
+    # unerheblich, weil sie mit unregelmaessigen Abstaenden rechnet.
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Zwei Laeufe gleichzeitig wuerden sich beim Schreiben in die Quere kommen.
+concurrency:
+  group: collect-travel
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Vorräte lesen und eintragen
+        run: node tools/collect-travel.mjs --out data/travel-stock.json
+
+      - name: Änderung festhalten
+        run: |
+          if git diff --quiet -- data/travel-stock.json; then
+            echo "Nichts Neues — YATA liefert dieselbe zwischengespeicherte Antwort."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/travel-stock.json
+          git commit -m "Vorräte: Messpunkte vom $(date -u '+%Y-%m-%d %H:%M UTC')"
+          # Zwischen Lesen und Schreiben kann ein anderer Lauf committet haben.
+          for i in 1 2 3; do
+            git pull --rebase --autostash origin main && git push origin HEAD:main && exit 0
+            sleep $((i * 5))
+          done
+          echo "Konnte nicht pushen." >&2
+          exit 1

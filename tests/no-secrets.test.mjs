@@ -80,10 +80,11 @@ test('die Seiten erlauben Verbindungen nur zu Torn und weav3r', () => {
     // Die Liste ist bewusst kurz und namentlich: jede weitere Domain ist eine
     // Stelle, an die ein Key oder eine Anfrage abfliessen koennte. yata.yt kam
     // dazu, weil weder Torn noch weav3r die Auslandsvorraete kennen - und nur
-    // auf den Seiten, die sie brauchen.
+    // auf den Seiten, die sie brauchen. 'self' erlaubt die gesammelte
+    // Historie neben der Seite, also keine fremde Stelle.
     const allowed = /travel|diagnose/.test(page)
-      ? ['https://api.torn.com', 'https://weav3r.dev', 'https://yata.yt']
-      : ['https://api.torn.com', 'https://weav3r.dev'];
+      ? ["'self'", 'https://api.torn.com', 'https://weav3r.dev', 'https://yata.yt']
+      : ["'self'", 'https://api.torn.com', 'https://weav3r.dev'];
     assert.deepEqual(hosts, allowed, `${page}: unerwartete Ziel-Hosts`);
 
     assert.match(csp[1], /default-src 'none'/, `${page}: default-src muss 'none' sein`);

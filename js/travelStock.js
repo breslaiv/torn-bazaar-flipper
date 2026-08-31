@@ -154,10 +154,14 @@ export function evaluateModels(series = []) {
       const ahead = (ts - asOf) / MINUTE;
       if (ahead <= 0) continue;
 
+      // Ob das Regal beim Vorhersagen leer war, wird mitgeschrieben: ein
+      // Modell, das im Normalbetrieb gut ist, kann ausgerechnet aus der Null
+      // heraus nichts taugen.
+      const fromEmpty = known[known.length - 1][1] === 0;
       for (const model of MODELS) {
         const predicted = runModel(model, known, ahead, asOf);
         if (predicted === null) continue;
-        results.get(model.key).residuals.push({ horizon: ahead, residual: actual - predicted });
+        results.get(model.key).residuals.push({ horizon: ahead, residual: actual - predicted, fromEmpty });
       }
     }
   }
@@ -179,25 +183,81 @@ export function evaluateModels(series = []) {
  * Modell. Ein Wechsel wegen zwei Prozent Vorsprung waere kein Lernen,
  * sondern Rauschen.
  */
+/**
+ * Bewertet die Modelle in der Lage, in der sie gefragt werden.
+ *
+ * Der Grund: ein leeres Regal mit laufendem Timer ist ein anderer Fall als
+ * ein volles, das sich leert. Ueber alle Kontrollen gemittelt gewinnt der
+ * Netto-Trend, weil die meisten Pruefpunkte aus der Leerlaufphase stammen -
+ * und sagt dann fuer die Null einen Nachschub von nichts voraus. Genau das
+ * Ziel, auf das man wartet, faellt damit aus der Planung.
+ *
+ * Gibt es zu wenige Kontrollen aus derselben Lage, wird auf alle
+ * zurueckgegriffen: eine schmale Grundlage ist besser als keine.
+ */
+export function scoreModels(results, { fromEmpty = null, horizon = null } = {}) {
+  const scored = new Map();
+
+  for (const r of results.values()) {
+    // Drei Stufen, von der schaerfsten Passung zur breitesten Grundlage.
+    const gleicheLage = fromEmpty === null
+      ? r.residuals
+      : r.residuals.filter((x) => Boolean(x.fromEmpty) === fromEmpty);
+    const gleicherHorizont = horizon
+      ? gleicheLage.filter((x) => x.horizon >= horizon / 3 && x.horizon <= horizon * 3)
+      : [];
+
+    let residuals = r.residuals;
+    let matched = 'alle';
+    if (gleicherHorizont.length >= MIN_CHECKS) {
+      residuals = gleicherHorizont;
+      matched = 'lage+horizont';
+    } else if (gleicheLage.length >= MIN_CHECKS) {
+      residuals = gleicheLage;
+      matched = 'lage';
+    }
+
+    const errors = residuals.map((x) => Math.abs(x.residual));
+    scored.set(r.key, {
+      key: r.key,
+      label: r.label,
+      residuals,
+      checks: errors.length,
+      // Gewichtet wird mit dem Mittelwert, nicht mit dem Median. Der Median
+      // ist robust gegen Ausreisser - aber hier ist der Ausreisser genau das
+      // Ereignis, um das es geht. Bei zehnminuetigen Messungen ist ein leeres
+      // Regal fuenfmal hintereinander leer und einmal voll; ein Modell, das
+      // den Nachschub nie sieht, gewinnt jeden Median-Vergleich mit Fehler
+      // null. Der Mittelwert laesst den einen grossen Fehler durch.
+      meanAbsError: errors.length ? errors.reduce((s, e) => s + e, 0) / errors.length : null,
+      medianAbsError: median(errors),
+      matched,
+    });
+  }
+  return scored;
+}
+
 export function rankModels(results) {
+  const score = (r) => (Number.isFinite(r.meanAbsError) ? r.meanAbsError : r.medianAbsError);
   const usable = [...results.values()]
-    .filter((r) => r.checks >= MIN_CHECKS && Number.isFinite(r.medianAbsError));
+    .filter((r) => r.checks >= MIN_CHECKS && Number.isFinite(score(r)));
   if (!usable.length) return [];
 
-  const best = Math.min(...usable.map((r) => r.medianAbsError));
+  const best = Math.min(...usable.map(score));
   // Toleranz statt strengem Minimum: der Zuschlag faengt den Fall ab, dass
   // alle Fehler nahe null liegen und ein Zufall entscheidet.
   const tolerance = best * 1.1 + 0.5;
-  const eligible = usable.filter((r) => r.medianAbsError <= tolerance)
+  const eligible = usable.filter((r) => score(r) <= tolerance)
     .sort((a, b) => modelByKey(a.key).complexity - modelByKey(b.key).complexity);
-  const rest = usable.filter((r) => r.medianAbsError > tolerance)
-    .sort((a, b) => a.medianAbsError - b.medianAbsError);
+  const rest = usable.filter((r) => score(r) > tolerance).sort((a, b) => score(a) - score(b));
 
   return [...eligible, ...rest].map((r) => ({
     key: r.key,
     label: r.label,
     checks: r.checks,
+    meanAbsError: r.meanAbsError,
     medianAbsError: r.medianAbsError,
+    matched: r.matched,
     reason: usable.length > 1 ? `bester von ${usable.length} geprüften Modellen` : 'einziges prüfbares Modell',
   }));
 }
@@ -332,7 +392,12 @@ export function predict(series, minutesAhead, now = Date.now()) {
     };
   }
 
-  const results = evaluateModels(points);
+  const leer = points[points.length - 1][1] === 0;
+  const elapsedNow = Math.max(0, (now - points[points.length - 1][0]) / MINUTE);
+  const results = scoreModels(evaluateModels(points), {
+    fromEmpty: leer,
+    horizon: elapsedNow + Math.max(0, minutesAhead),
+  });
   const choice = chooseModelFor(results, points, minutesAhead, now);
   const model = modelByKey(choice.key);
   const quantity = runModel(model, points, minutesAhead, now);
@@ -367,6 +432,9 @@ export function predict(series, minutesAhead, now = Date.now()) {
 
   const accuracy = accuracyOf(residuals, band, horizon);
   const parts = [`Modell „${choice.label}"`];
+  const matched = results.get(choice.key)?.matched;
+  if (matched === 'lage+horizont') parts.push(leer ? 'geprüft aus leerem Regal, gleiche Flugdauer' : 'geprüft für diese Flugdauer');
+  else if (matched === 'lage') parts.push(leer ? 'geprüft aus leerem Regal' : 'geprüft aus laufendem Bestand');
   if (accuracy.checks) {
     parts.push(`${accuracy.checks} Selbstkontrollen, Median-Fehler ${Math.round(accuracy.medianAbsError)}`);
   } else {
@@ -426,7 +494,12 @@ export function chanceAtLeast(series, units, minutesAhead, now = Date.now()) {
   const points = [...series].sort((a, b) => a[0] - b[0]);
   if (points.length < 2) return null;
 
-  const results = evaluateModels(points);
+  const leer = points[points.length - 1][1] === 0;
+  const vergangen = Math.max(0, (now - points[points.length - 1][0]) / MINUTE);
+  const results = scoreModels(evaluateModels(points), {
+    fromEmpty: leer,
+    horizon: vergangen + Math.max(0, minutesAhead),
+  });
   const choice = chooseModelFor(results, points, minutesAhead, now);
   const quantity = runModel(modelByKey(choice.key), points, minutesAhead, now);
   if (quantity === null) return null;
@@ -452,11 +525,35 @@ export function backtest(series = []) {
   const points = [...series].sort((a, b) => a[0] - b[0]);
   if (points.length < 3) return { checks: 0, medianAbsError: null, worstAbsError: null, coverage: null, model: null };
 
-  const results = evaluateModels(points);
+  const results = scoreModels(evaluateModels(points), { fromEmpty: points[points.length - 1][1] === 0 });
   const choice = chooseModel(results);
   const residuals = results.get(choice.key).residuals;
   const horizon = median(residuals.map((r) => r.horizon)) ?? 0;
   return { ...accuracyOf(residuals, conformalInterval(residuals, horizon), horizon), model: choice };
+}
+
+/**
+ * Fuehrt zwei Messsammlungen zusammen.
+ *
+ * Der Sammler in GitHub Actions und der eigene Browser sehen dasselbe Regal,
+ * aber nicht zur selben Zeit. Zusammengelegt wird nach Zeitstempel, doppelte
+ * Punkte fallen weg - so bleibt eine Reihe entstehen, egal aus welcher
+ * Richtung sie gefuellt wurde.
+ */
+export function mergeStock(local = {}, remote = {}, limit = MAX_SAMPLES) {
+  const out = {};
+  for (const key of new Set([...Object.keys(local), ...Object.keys(remote)])) {
+    const seen = new Map();
+    for (const [ts, quantity] of [...(remote[key] || []), ...(local[key] || [])]) {
+      if (!Number.isFinite(ts) || !Number.isFinite(quantity)) continue;
+      // Bei gleichem Zeitstempel gewinnt der lokale Wert: wer selbst im Shop
+      // stand, hat genauer hingesehen als eine gesammelte Quelle.
+      seen.set(ts, quantity);
+    }
+    const series = [...seen.entries()].sort((a, b) => a[0] - b[0]).slice(-limit);
+    if (series.length) out[key] = series;
+  }
+  return out;
 }
 
 // ---------- Speicher ----------

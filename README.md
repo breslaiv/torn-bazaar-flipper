@@ -577,6 +577,36 @@ das interessanteste Ziel aus der Liste: ein leeres Regal, dessen Timer läuft un
 wenn man ankommt. (Genau das tat die erste Fassung — Mexiko mit `0 jetzt` und `169–200 bei
 Landung` stand gar nicht in der Tabelle.)
 
+### Der Sammler: Daten ohne Zutun
+
+Eine Messreihe entsteht nur, wenn jemand nachsieht. Solange das nur der Browser tut, gibt es
+Daten genau dann, wenn die Seite offen ist — also nicht nachts, und selten in dem Fenster, in
+dem ein Timer abläuft. Deshalb sammelt ein **GitHub-Actions-Workflow** (`collect.yml`) alle zehn
+Minuten selbst: er liest YATA, trägt die Messung ein und committet `data/travel-stock.json`.
+Die Seite liest die Datei beim Start und führt sie mit den eigenen Beobachtungen zusammen.
+
+Drei Eigenschaften, die kein Zufall sind:
+
+- **Gleiche Rechnung.** `tools/collect-travel.mjs` benutzt `parseTravelExport` und
+  `recordSnapshot` aus der App. Was gesammelt wird, entsteht nach denselben Regeln wie eine
+  Eingabe von Hand — inklusive der Regel, dass eine zwischengespeicherte Antwort keine neue
+  Messung ist. Ein Test hält fest, dass der Sammler diese Funktionen importiert und nicht
+  eigene nachbaut.
+- **Kein CORS.** Serverseitig gibt es die Beschränkung nicht, an der der Browser scheitern
+  kann. Selbst wenn yata.yt Zugriffe aus fremden Seiten verweigert, füllt sich die Historie.
+- **Same-origin.** Die Datei liegt neben der Seite; in der CSP steht dafür `'self'` statt einer
+  weiteren Domain. Kein Key ist beteiligt — ein Test verbietet `secrets.` im Workflow.
+
+Ein frischer Browser hat damit vom ersten Aufruf an Messreihen: im Test 47 Punkte, drei
+erkannte Zyklen, Timer auf 50–70 Minuten eingegrenzt — ohne dass jemand je auf *Vorräte laden*
+gedrückt hätte.
+
+**Was dabei zu beachten ist:** GitHub hält `cron` nicht auf die Minute genau ein und lässt
+unter Last Läufe aus (für die Schätzung unerheblich, sie rechnet mit unregelmäßigen Abständen).
+Und GitHub deaktiviert geplante Workflows in Repositories, die 60 Tage keine Aktivität zeigen —
+die Commits des Sammlers halten es wach, aber ein Blick auf den Actions-Tab nach längerer Pause
+schadet nicht.
+
 ### Vier Modelle treten gegeneinander an
 
 Statt eines fest verdrahteten Modells konkurrieren vier Kandidaten, und **je Messreihe gewinnt
@@ -592,6 +622,18 @@ das, welches auf deren eigener Vergangenheit am besten lag**:
 Das ist die ehrliche Form von „lernt dazu": die App **misst**, welche Erklärung zu diesem Regal
 passt, statt sie zu raten. Mit jeder Messung wächst die Prüfmenge, und der Sieger kann wechseln.
 Welches Modell gerade gewinnt, steht im Panel *Beobachtungen* — nachvollziehbar statt Blackbox.
+
+**Bewertet wird in der Lage, in der gefragt wird.** Ein leeres Regal mit laufendem Timer ist
+ein anderer Fall als ein volles, das sich leert — also zählen für die Wahl nur Kontrollen aus
+derselben Lage und mit ähnlicher Flugdauer (mit Rückfall auf die breitere Grundlage, wenn zu
+wenige da sind; die Zeile sagt, welche gerade gilt).
+
+**Gewichtet wird mit dem Mittelwert, nicht mit dem Median** — entgegen der sonstigen Regel in
+diesem Projekt, und aus einem konkreten Grund. Bei zehnminütigen Messungen ist ein leeres Regal
+fünfmal hintereinander leer und einmal voll. *Bleibt wie es ist* trifft fünf von sechs Fällen
+exakt, sein Median-Fehler ist **null**, und damit gewinnt es jeden Vergleich — obwohl es genau
+im entscheidenden Moment um 200 Stück danebenliegt. Der Median ist robust gegen Ausreißer; hier
+ist der Ausreißer das Ereignis, um das es geht.
 
 **Zwei Bremsen gegen Überanpassung.** Wer auf zehn Prüfpunkten unter fünfzig Modellen wählt,
 wählt Rauschen. Deshalb: erst ab vier bestandenen Kontrollen darf ein Modell den Standard
@@ -698,7 +740,9 @@ js/offersStore.js   Angebote merken, Status fortschreiben, Notizen halten
 js/table.js         Tabellenbau mit data-label für die Kartenansicht
 js/ledgerPage.js    Verdrahtung der Ledger-Seite
 tools/make-icon.py  erzeugt icon-180.png fuer den iOS-Home-Screen
+tools/collect-travel.mjs sammelt Vorräte für GitHub Actions, mit der App-Logik
 tools/version-assets.py  stempelt APP_VERSION in jeden Import
+data/travel-stock.json   die gesammelte Historie, vom Workflow geschrieben
 tests/              node --test, ohne Abhängigkeiten (inkl. Secret-Scan)
 ```
 
@@ -711,7 +755,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-322 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
+335 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
 Parallelität und Abbruch, Zeitstempel-Deutung, Scan-Ablauf, Markup, Sortierung,
 Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status, Bestandsbewertung, Flugplanung, Modellwahl, Vorratsvorhersage und Persistenz sowie die Key-, CSP-,
 Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
