@@ -1,7 +1,7 @@
-import { DEFAULTS } from './config.js?v=4';
-import { loadSettings, saveSettings, clearSettings, hasSavedSettings } from './storage.js?v=4';
-import { runFlipScan, runDollarScan, verifyWithTorn } from './scan.js?v=4';
-import { renderRows, renderHead, setStatus, installSorting, fmtMoney, showVersion } from './ui.js?v=4';
+import { DEFAULTS } from './config.js?v=5';
+import { loadSettings, saveSettings, clearSettings, hasSavedSettings } from './storage.js?v=5';
+import { runFlipScan, runDollarScan, verifyWithTorn } from './scan.js?v=5';
+import { renderRows, renderHead, setStatus, installSorting, fmtMoney, showVersion } from './ui.js?v=5';
 
 const NUMERIC_FIELDS = new Set([
   'sellFactor', 'marketFeePct', 'prescreenPct', 'maxCandidates', 'listingsPerItem',
