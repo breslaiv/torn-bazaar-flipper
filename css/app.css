@@ -1,0 +1,154 @@
+:root {
+  --bg: #14161a;
+  --panel: #1c1f25;
+  --panel-2: #23272f;
+  --border: #333944;
+  --text: #e6e8ec;
+  --muted: #949cab;
+  --accent: #4da3ff;
+  --good: #4ade80;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+a { color: var(--accent); }
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+header h1 { font-size: 16px; margin: 0; letter-spacing: .3px; }
+header nav { margin-left: auto; display: flex; gap: 14px; font-size: 13px; }
+
+main { padding: 20px; max-width: 1500px; margin: 0 auto; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.panel > h2 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+
+details.panel > summary {
+  cursor: pointer;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  list-style: none;
+}
+details.panel > summary::before { content: "\25B8 "; }
+details.panel[open] > summary::before { content: "\25BE "; }
+details.panel[open] > summary { margin-bottom: 14px; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px 18px;
+}
+
+label.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+label.field .hint { font-size: 11px; color: #6b7280; }
+
+input, select, button, textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 7px 9px;
+}
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+button {
+  cursor: pointer;
+  background: var(--panel-2);
+  transition: background .12s;
+}
+button:hover:not(:disabled) { background: #2e333c; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #06101c; font-weight: 600; }
+button.primary:hover:not(:disabled) { background: #6cb4ff; }
+
+.actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+
+#status { font-size: 13px; color: var(--muted); min-height: 20px; }
+#status.error { color: var(--bad); white-space: pre-wrap; }
+#status.ok { color: var(--good); }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th:first-child, td:first-child, th.left, td.left { text-align: left; }
+thead th {
+  position: sticky; top: 0;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+thead th:hover { color: var(--text); }
+tbody tr:hover { background: #1f232a; }
+td.num { font-family: var(--mono); }
+.pos { color: var(--good); }
+.neg { color: var(--bad); }
+
+.tag {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.tag.warn { color: var(--warn); border-color: #5b4a1a; }
+.tag.ok { color: var(--good); border-color: #1f5133; }
+
+.table-wrap { overflow-x: auto; max-height: 70vh; overflow-y: auto; }
+
+pre.raw {
+  background: #0f1115;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  overflow: auto;
+  max-height: 420px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: #c8cdd6;
+}
+
+.note {
+  border-left: 3px solid var(--accent);
+  padding: 8px 12px;
+  background: #171b21;
+  color: var(--muted);
+  font-size: 13px;
+  border-radius: 0 5px 5px 0;
+  margin: 0 0 14px;
+}

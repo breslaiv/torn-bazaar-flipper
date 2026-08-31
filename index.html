@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Torn Bazaar Flipper</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231c1f25'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='%234da3ff' font-family='sans-serif'%3E%24%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header>
+  <h1>Torn Bazaar Flipper</h1>
+  <span id="lastRun" class="tag"></span>
+  <nav>
+    <a href="diagnose.html">API-Diagnose</a>
+    <a href="https://github.com/breslaiv/torn-bazaar-flipper" target="_blank" rel="noopener">Code</a>
+  </nav>
+</header>
+
+<main>
+  <p class="note">
+    Alle Schlüssel bleiben im <code>localStorage</code> deines Browsers. Sie werden nie
+    an eine andere Stelle als Torn bzw. weav3r gesendet und landen nie im Repository.
+    Wenn der Scan mit einem CORS-Fehler abbricht, prüf zuerst die
+    <a href="diagnose.html">API-Diagnose</a>.
+  </p>
+
+  <details class="panel" id="settingsPanel">
+    <summary>Einstellungen</summary>
+
+    <h2>Zugang</h2>
+    <div class="grid">
+      <label class="field">Torn API-Key
+        <input type="password" id="tornKey" autocomplete="off" placeholder="Public-Access reicht">
+        <span class="hint">Für Item-Namen, market_value und Item-Market-Preise.</span>
+      </label>
+      <label class="field">weav3r Endpoint-URL
+        <input type="text" id="weav3rUrl" autocomplete="off" placeholder="https://weav3r.dev/api/…">
+        <span class="hint">Aus api-docs.html. <code>{ITEM_ID}</code> als Platzhalter erlaubt.</span>
+      </label>
+      <label class="field">weav3r API-Key
+        <input type="password" id="weav3rKey" autocomplete="off" placeholder="falls nötig">
+      </label>
+      <label class="field">weav3r Auth-Methode
+        <select id="weav3rAuthMode">
+          <option value="none">keine</option>
+          <option value="query:key">Query-Parameter ?key=</option>
+          <option value="query:apiKey">Query-Parameter ?apiKey=</option>
+          <option value="header:X-API-Key">Header X-API-Key</option>
+          <option value="bearer">Authorization: Bearer</option>
+        </select>
+      </label>
+    </div>
+
+    <h2 style="margin-top:20px">Verkaufsseite</h2>
+    <div class="grid">
+      <label class="field">Referenzpreis
+        <select id="priceSource">
+          <option value="market_value">market_value (1 Request, alle Items)</option>
+          <option value="itemmarket">Item-Market-Tiefstpreis (nur Top-Treffer)</option>
+        </select>
+      </label>
+      <label class="field">Verkaufsfaktor (%)
+        <input type="number" id="sellFactor" min="1" max="200" step="1">
+        <span class="hint">Anteil der Referenz, den du real erlöst. 90 = privater Käufer zu 90%.</span>
+      </label>
+      <label class="field">Verkaufsgebühr (%)
+        <input type="number" id="marketFeePct" min="0" max="50" step="0.1">
+        <span class="hint">Trades sind gebührenfrei; setz hier ggf. die Item-Market-Gebühr ein.</span>
+      </label>
+      <label class="field">Live-Check der Top-N
+        <input type="number" id="verifyTopN" min="0" max="60" step="1">
+        <span class="hint">Echter Item-Market-Preis für die besten N Items. 0 = aus.</span>
+      </label>
+    </div>
+
+    <h2 style="margin-top:20px">Filter</h2>
+    <div class="grid">
+      <label class="field">Min. Profit pro Stück ($)
+        <input type="number" id="minProfitAbs" min="0" step="1000">
+      </label>
+      <label class="field">Min. Marge (%)
+        <input type="number" id="minProfitPct" min="0" step="1">
+      </label>
+      <label class="field">Max. Kaufpreis ($)
+        <input type="number" id="maxBuyPrice" min="0" step="10000">
+        <span class="hint">0 = kein Limit.</span>
+      </label>
+      <label class="field">Budget ($)
+        <input type="number" id="budget" min="0" step="100000">
+        <span class="hint">Begrenzt die Stückzahl und damit den Gesamtprofit. 0 = kein Limit.</span>
+      </label>
+      <label class="field">Auto-Refresh (Sekunden)
+        <input type="number" id="autoRefreshSec" min="0" step="10">
+        <span class="hint">0 = aus.</span>
+      </label>
+      <label class="field">Item-Cache (Minuten)
+        <input type="number" id="itemCacheMinutes" min="1" step="5">
+      </label>
+      <label class="field">Item-IDs (Pro-Item-Modus)
+        <input type="text" id="itemFilterIds" placeholder="206, 207, 815">
+        <span class="hint">Nur wenn die weav3r-URL <code>{ITEM_ID}</code> enthält. Leer = teuerste Items.</span>
+      </label>
+      <label class="field">Max. Items pro Scan
+        <input type="number" id="perItemScanLimit" min="1" max="200" step="5">
+        <span class="hint">Deckelt die Requests im Pro-Item-Modus.</span>
+      </label>
+    </div>
+
+    <div class="actions">
+      <button id="saveBtn" class="primary">Speichern</button>
+      <button id="clearCacheBtn">Item-Cache leeren</button>
+      <button id="resetBtn">Einstellungen zurücksetzen</button>
+    </div>
+  </details>
+
+  <div class="panel">
+    <div class="actions" style="margin-top:0">
+      <button id="scanBtn" class="primary">Scan starten</button>
+      <button id="stopBtn" disabled>Stopp</button>
+      <span id="status"></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Treffer (<span id="rowCount">0</span>)</h2>
+    <div class="table-wrap">
+      <table id="results">
+        <thead>
+          <tr>
+            <th class="left" data-sort="itemName">Item</th>
+            <th data-sort="buy">Bazaar-Preis</th>
+            <th data-sort="reference">Referenz</th>
+            <th data-sort="sellNet">Netto-Verkauf</th>
+            <th data-sort="profitPerUnit">Profit/Stück</th>
+            <th data-sort="profitPct">Marge %</th>
+            <th data-sort="quantity">Menge</th>
+            <th data-sort="totalProfit">Gesamtprofit</th>
+            <th class="left">Bazaar</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
