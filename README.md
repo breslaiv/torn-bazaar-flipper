@@ -105,6 +105,44 @@ ist bei Torn üblich und vermeidet einen CORS-Preflight. Er steht damit in keine
 Adresszeile und in keinem Browserverlauf, weil er nur in `fetch`-Aufrufen vorkommt.
 
 
+## Auf dem Handy
+
+Die Oberfläche ist für die Nutzung am Telefon gebaut, nicht nur dafür verkleinert.
+
+**Aus der Tabelle werden Karten.** Zehn Spalten sind auf 393 px nicht lesbar. Unter 720 px
+verschwindet die Kopfzeile und jede Trefferzeile wird zu einer Karte: Itemname als
+Überschrift, darunter Label und Wert paarweise, Profit und Gesamt hervorgehoben. Dasselbe
+Markup, nur anderes CSS — die Zell-Labels kommen aus `data-label`, gespeist aus derselben
+Spaltendefinition wie die Kopfzeile in `js/ui.js`. Weil ohne Kopfzeile niemand sortieren
+kann, gibt es darüber ein Auswahlfeld plus Richtungsknopf, das auf dieselbe Sortierfunktion
+geht.
+
+**Was sonst noch anders ist:**
+
+- Eingabefelder sind auf 16 px gesetzt. Darunter zoomt Safari beim Fokussieren in die Seite
+  hinein, und man tippt danach in einer verschobenen Ansicht weiter.
+- Alle Bedienelemente sind mindestens 44 px hoch — Apples Mindestmaß für ein Tippziel.
+- `viewport-fit=cover` plus `env(safe-area-inset-*)`: Inhalt bleibt aus Dynamic Island,
+  abgerundeten Ecken und Home-Indikator heraus.
+- Die Scan-Leiste klebt am unteren Rand, statt am Seitenanfang zu verschwinden.
+- Ein Scan dauert 30–60 Sekunden. Ein Fortschrittsbalken in der Leiste zeigt, dass noch
+  etwas passiert.
+- Die Einstellungen sind ab dem zweiten Besuch zugeklappt — sonst stehen 15 Felder zwischen
+  Seitenanfang und Trefferliste.
+- Kein verschachteltes Scrollen: auf dem Handy scrollt die Seite, nicht ein Kasten in ihr.
+
+**Auf den Home-Screen legen:** In Safari über *Teilen → Zum Home-Bildschirm*. Das Manifest
+startet die App dann ohne Browser-Leiste, mit dunkler Statusleiste und eigenem Icon.
+`icon-180.png` wird von `tools/make-icon.py` erzeugt — iOS akzeptiert für
+`apple-touch-icon` kein SVG, und die Umgebung hatte keinen Konverter, also schreibt das
+Skript das PNG direkt.
+
+Ein Hinweis zur Ehrlichkeit: sperrst du das Telefon mitten im Scan, hält iOS die Seite an.
+Der Scan läuft weiter, sobald du zurückkommst, aber er wird dadurch langsamer. Bei
+ungeduldiger Nutzung lohnt es, *Max. Kandidaten* zu senken — 20 statt 35 halbiert die
+Laufzeit.
+
+
 ## Hosting auf GitHub Pages
 
 `.github/workflows/pages.yml` deployt bei jedem Push auf `main`. Einmalig nötig:
@@ -145,8 +183,9 @@ js/torn.js          Torn API v2, optional, nur für die Item-Market-Gegenprobe
 js/profit.js        Vorauswahl, Käuferwahl, Profit-Rechnung, Filter
 js/scan.js          Ablauf eines Scans, abbrechbar, mit Fortschrittsmeldung
 js/storage.js       localStorage
-js/ui.js            Tabelle, Formatierung, Sortierung
-js/app.js           Verdrahtung
+js/ui.js            Spaltendefinition, Tabelle/Karten, Sortierung
+js/app.js           Verdrahtung, Fortschritt
+tools/make-icon.py  erzeugt icon-180.png fuer den iOS-Home-Screen
 tests/              node --test, ohne Abhängigkeiten (inkl. Secret-Scan)
 ```
 
@@ -159,8 +198,8 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-39 Tests über Response-Parsing, Vorauswahl, Profit-Rechnung, Scan-Ablauf sowie die
-Key- und CSP-Prüfungen aus dem Abschnitt Sicherheit.
+62 Tests über Response-Parsing, Vorauswahl, Profit-Rechnung, Scan-Ablauf, Markup und
+Sortierung sowie die Key-, CSP- und Mobile-Prüfungen aus den Abschnitten oben.
 
 ## Grenzen
 

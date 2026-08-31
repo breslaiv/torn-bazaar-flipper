@@ -23,6 +23,15 @@ export function saveSettings(settings) {
   return clean;
 }
 
+/** Unterscheidet den ersten Besuch von einer bereits eingerichteten Instanz. */
+export function hasSavedSettings() {
+  try {
+    return localStorage.getItem(STORAGE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 export function clearSettings() {
   localStorage.removeItem(STORAGE_KEY);
 }

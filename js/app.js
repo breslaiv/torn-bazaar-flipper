@@ -1,7 +1,7 @@
 import { DEFAULTS } from './config.js';
-import { loadSettings, saveSettings, clearSettings } from './storage.js';
+import { loadSettings, saveSettings, clearSettings, hasSavedSettings } from './storage.js';
 import { runFlipScan, runDollarScan, verifyWithTorn } from './scan.js';
-import { renderRows, setStatus, installSorting, fmtMoney } from './ui.js';
+import { renderRows, renderHead, setStatus, installSorting, fmtMoney } from './ui.js';
 
 const NUMERIC_FIELDS = new Set([
   'sellFactor', 'marketFeePct', 'prescreenPct', 'maxCandidates', 'listingsPerItem',
@@ -38,6 +38,14 @@ function settingsToForm(settings) {
 function setBusy(busy) {
   document.getElementById('scanBtn').disabled = busy;
   document.getElementById('stopBtn').disabled = !busy;
+  const bar = document.getElementById('progress');
+  bar.hidden = !busy;
+  if (!busy) bar.firstElementChild.style.width = '0%';
+}
+
+function setProgress(pct) {
+  const bar = document.getElementById('progress');
+  bar.firstElementChild.style.width = `${Math.max(0, Math.min(100, pct))}%`;
 }
 
 function summarise(rows, stats, settings) {
@@ -59,7 +67,16 @@ async function runScan() {
   controller = new AbortController();
   setBusy(true);
 
-  const onProgress = ({ text }) => setStatus(text);
+  const onProgress = ({ text, phase, done, total }) => {
+    setStatus(text);
+    // Grobe Gewichtung: Katalog vorne, Detailabfragen die lange Mitte,
+    // Gegenprobe der Rest.
+    let pct = 5;
+    if (phase === 'detail' && total) pct = 8 + (done / total) * 84;
+    else if (phase === 'dollar') pct = 50;
+    else if (phase === 'verify') pct = 95;
+    setProgress(pct);
+  };
 
   try {
     const scan = settings.scanMode === 'dollar' ? runDollarScan : runFlipScan;
@@ -105,6 +122,11 @@ function syncModeVisibility() {
 function init() {
   settingsToForm(loadSettings());
   syncModeVisibility();
+  renderHead();
+
+  // Beim ersten Besuch aufgeklappt, danach zu: auf dem Handy sind das
+  // sonst 15 Felder zwischen Seitenanfang und Trefferliste.
+  document.getElementById('settingsPanel').open = !hasSavedSettings();
 
   document.getElementById('scanMode').addEventListener('change', syncModeVisibility);
 
@@ -133,7 +155,6 @@ function init() {
     renderRows(sorted);
   });
 
-  renderRows([]);
   scheduleAutoRefresh();
 }
 

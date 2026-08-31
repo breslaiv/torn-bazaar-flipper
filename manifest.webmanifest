@@ -1,0 +1,16 @@
+{
+  "name": "Torn Bazaar Flipper",
+  "short_name": "Bazaar Flip",
+  "description": "Findet Bazaar-Listings unter dem Ankaufspreis privater Käufer.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#14161a",
+  "theme_color": "#14161a",
+  "lang": "de",
+  "icons": [
+    { "src": "./icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
