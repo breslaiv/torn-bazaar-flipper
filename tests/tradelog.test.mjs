@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normaliseLog } from '../js/tornlog.js';
-import { tradeRole, groupByTrade, resolveTrade, reconstructTrades } from '../js/tradelog.js';
+import {
+  tradeRole, groupByTrade, resolveTrade, reconstructTrades,
+  describeTrade, offersFromLog, priceFromDescription,
+} from '../js/tradelog.js';
 
 // Wortwoertlich aus einem echten Log: ein Verkauf von 12x Item 1252 fuer
 // 212784, also 17732 je Stueck.
@@ -31,7 +34,14 @@ test('die Rollen kommen aus Torns Titeln, mit dem Suffix als Unterscheidung', ()
   assert.equal(tradeRole('Trade money outgoing'), 'moneyOut');
   assert.equal(tradeRole('Trade completed'), 'completed');
   assert.equal(tradeRole('Trade comment'), null);
-  assert.equal(tradeRole('Trade initiate outgoing'), null);
+  assert.equal(tradeRole('Trade initiate outgoing'), 'initiateMine');
+  assert.equal(tradeRole('Trade initiate incoming'), 'initiateTheirs');
+  assert.equal(tradeRole('Trade cancel outgoing'), 'cancelMine');
+  assert.equal(tradeRole('Trade cancel incoming'), 'cancelTheirs');
+  assert.equal(tradeRole('Trade expire'), 'expired');
+  // Auch hier zaehlt die Verankerung: "accepted" ist nicht "accept ...".
+  assert.equal(tradeRole('Trade accepted'), 'accepted');
+  assert.equal(tradeRole('Trade money outgoing extra'), null);
 });
 
 test('ein echter Verkauf wird vollstaendig rekonstruiert', () => {
@@ -173,4 +183,118 @@ test('derselbe Trade ergibt bei erneutem Import dieselbe Referenz', () => {
   const a = reconstructTrades(parse(VERKAUF)).events[0];
   const b = reconstructTrades(parse(VERKAUF)).events[0];
   assert.equal(a.ref, b.ref, 'sonst waechst der Ledger bei jedem Import');
+});
+
+// ---------- Angebote ----------
+
+const gruppe = (raw) => groupByTrade(parse(raw))[0];
+
+test('ein abgelaufener Trade sagt, was fuer wen gedacht war', () => {
+  // Der Fall, um den es geht: die Ware liegt wieder im Inventar und niemand
+  // weiss mehr, warum. resolveTrade() wirft ihn weg, describeTrade() nicht.
+  const abgelaufen = [
+    ...VERKAUF.filter((e) => !/completed|money incoming/i.test(e.details.title)),
+    { id: 'e1', timestamp: 1788272000, details: { id: 4420, title: 'Trade expire', category: 'Trades' },
+      data: { user: 3608714, parsed_trade_id: 13118955 } },
+  ];
+  const offer = describeTrade(gruppe(abgelaufen), new Map([[1252, 'Brass Ingot']]));
+
+  assert.equal(offer.status, 'expired');
+  assert.equal(offer.counterpartyId, 3608714);
+  assert.equal(offer.direction, 'sell');
+  assert.deepEqual(offer.myItems, [{ itemId: 1252, quantity: 12, itemName: 'Brass Ingot' }]);
+  assert.equal(offer.description, 'Brass Imgot @ $17,732', 'der eingetippte Text ist die Erinnerung');
+  assert.equal(offer.unitPrice, 17732, 'der Gegenwert, den er hinterlegt hatte');
+  assert.equal(offer.openedAt, 1788185840000);
+  assert.equal(offer.endedAt, 1788272000000);
+});
+
+test('wer abgebrochen hat, steht dabei', () => {
+  const mit = (title, id) => [
+    ...VERKAUF.filter((e) => !/completed|money incoming/i.test(e.details.title)),
+    { id: 'x', timestamp: 1788272000, details: { id, title, category: 'Trades' },
+      data: { user: 3608714, parsed_trade_id: 13118955 } },
+  ];
+  assert.deepEqual(
+    ['cancelled', 'me'],
+    [describeTrade(gruppe(mit('Trade cancel outgoing', 4410))).status,
+      describeTrade(gruppe(mit('Trade cancel outgoing', 4410))).statusBy],
+  );
+  const seins = describeTrade(gruppe(mit('Trade cancel incoming', 4411)));
+  assert.equal(seins.statusBy, 'them');
+  const abgelehnt = describeTrade(gruppe(mit('Trade decline incoming', 4413)));
+  assert.equal(abgelehnt.status, 'declined');
+});
+
+test('ohne Ende gilt ein Trade als offen', () => {
+  const offen = VERKAUF.filter((e) => !/completed|money incoming/i.test(e.details.title));
+  const offer = describeTrade(gruppe(offen));
+  assert.equal(offer.status, 'open');
+  assert.equal(offer.endedAt, null);
+});
+
+test('ein abgeschlossener Trade wird als solcher gefuehrt', () => {
+  const offer = describeTrade(gruppe(VERKAUF));
+  assert.equal(offer.status, 'completed');
+  assert.equal(offer.ref, 'trade-13118955', 'dieselbe Referenz wie im Ledger');
+});
+
+test('ohne hinterlegtes Geld bleibt der Preis aus dem Angebotstext', () => {
+  // Ein abgelaufenes Angebot, das nie bestueckt wurde: nur der Text sagt,
+  // was man wollte.
+  const nurAngebot = [
+    VERKAUF[0],
+    VERKAUF[1],
+    { id: 'e2', timestamp: 1788272000, details: { id: 4420, title: 'Trade expire', category: 'Trades' },
+      data: { user: 3608714, parsed_trade_id: 13118955 } },
+  ];
+  const offer = describeTrade(gruppe(nurAngebot));
+  assert.equal(offer.money, 0);
+  assert.equal(offer.askedUnitPrice, 17732);
+  assert.equal(offer.unitPrice, 17732, 'als Schaetzung, im UI gekennzeichnet');
+});
+
+test('priceFromDescription liest Torns Schreibweise', () => {
+  assert.equal(priceFromDescription('Brass Ingot @ $17,732'), 17732);
+  assert.equal(priceFromDescription('Xanax@745000'), 745000);
+  assert.equal(priceFromDescription('4x Item @ $1.250.000'), 1250000);
+  assert.equal(priceFromDescription('Sammelbestellung'), null, 'kein Preis genannt');
+  assert.equal(priceFromDescription(''), null);
+  assert.equal(priceFromDescription(null), null);
+});
+
+test('ein Kauf-Angebot wird als Kauf gefuehrt', () => {
+  const kauf = [
+    { id: 'k0', timestamp: 90, details: { id: 4401, title: 'Trade initiate incoming', category: 'Trades' },
+      data: { user: 42, parsed_trade_id: 777, description: 'Xanax @ $700,000' } },
+    { id: 'k1', timestamp: 100, details: { id: 4482, title: 'Trade items add other user', category: 'Trades' },
+      data: { user: 42, parsed_trade_id: 777, items: [{ id: 206, qty: 4 }] } },
+    { id: 'k2', timestamp: 110, details: { id: 4442, title: 'Trade money add', category: 'Trades' },
+      data: { user: 42, parsed_trade_id: 777, money: 2800000 } },
+  ];
+  const offer = describeTrade(gruppe(kauf));
+  assert.equal(offer.direction, 'buy');
+  assert.equal(offer.openedBy, 'them');
+  assert.equal(offer.myMoney, 2800000);
+  assert.equal(offer.unitPrice, 700000);
+});
+
+test('offersFromLog listet auch, was der Ledger verwirft', () => {
+  const abgebrochen = [
+    { id: 'a1', timestamp: 500, details: { id: 4400, title: 'Trade initiate outgoing', category: 'Trades' },
+      data: { user: 9, parsed_trade_id: 888, description: 'Dahlia @ $50,000' } },
+    { id: 'a2', timestamp: 510, details: { id: 4447, title: 'Trade items add', category: 'Trades' },
+      data: { user: 9, parsed_trade_id: 888, items: [{ id: 260, qty: 5 }] } },
+    { id: 'a3', timestamp: 900, details: { id: 4410, title: 'Trade cancel outgoing', category: 'Trades' },
+      data: { user: 9, parsed_trade_id: 888 } },
+  ];
+  const entries = parse([...VERKAUF, ...abgebrochen]);
+
+  assert.equal(reconstructTrades(entries).events.length, 1, 'gebucht wird nur der Abschluss');
+  const alle = offersFromLog(entries, new Map([[260, 'Dahlia']]));
+  assert.equal(alle.length, 2, 'gemerkt werden beide');
+  assert.deepEqual(alle.map((o) => o.status).sort(), ['cancelled', 'completed']);
+  const weg = alle.find((o) => o.status === 'cancelled');
+  assert.equal(weg.myItems[0].itemName, 'Dahlia');
+  assert.equal(weg.askedUnitPrice, 50000);
 });

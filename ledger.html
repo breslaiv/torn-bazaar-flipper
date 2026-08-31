@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bazaar Flip">
 <meta name="format-detection" content="telephone=no">
-<meta name="app-build" content="7">
+<meta name="app-build" content="8">
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'none';
   script-src 'self';
@@ -59,6 +59,28 @@
     <div class="table-wrap">
       <table id="salesTable" class="cards"><thead></thead><tbody></tbody></table>
     </div>
+  </div>
+
+  <div class="panel">
+    <h2>Angebote (<span id="offerCount">0</span>)</h2>
+    <p class="hint">
+      Was du wem angeboten hast — aus dem Torn-Log, auch wenn nichts daraus wurde.
+      Läuft ein Trade ab, liegt die Ware wieder im Inventar; hier steht, für wen sie
+      gedacht war und zu welchem Preis. Die Notiz ist deine eigene und bleibt beim
+      nächsten Import erhalten.
+    </p>
+    <div class="sortbar">
+      <label class="field" for="offerFilter">Zeigen</label>
+      <select id="offerFilter">
+        <option value="open">nur offene</option>
+        <option value="unfinished">alles außer abgeschlossen</option>
+        <option value="all">alle</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table id="offerTable" class="cards"><thead></thead><tbody></tbody></table>
+    </div>
+    <p class="hint" id="offerHint"></p>
   </div>
 
   <details class="panel" id="byItemPanel">
@@ -157,6 +179,6 @@
   <span id="status"></span>
 </div>
 
-<script type="module" src="js/ledgerPage.js?v=7"></script>
+<script type="module" src="js/ledgerPage.js?v=8"></script>
 </body>
 </html>

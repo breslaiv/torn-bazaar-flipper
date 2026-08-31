@@ -147,6 +147,31 @@ Zugeordnet wird dabei immer über die **ganze** Historie, und erst das Ergebnis 
 dem Verkaufsdatum zugeschnitten. Andernfalls verlöre ein Verkauf von heute den Einstand
 eines Kaufs von letzter Woche und stünde als Verkauf *ohne Einstand* mit Profit null da.
 
+### Angebote
+
+Ein Trade, der abläuft, hinterlässt nichts außer der Ware, die wieder im Inventar liegt —
+und der Frage, für wen sie eigentlich gedacht war. Das Torn-Log weiß es: `Trade initiate
+outgoing` trägt den Text, den man beim Anlegen eingetippt hat („Brass Ingot @ $17,732"),
+`Trade items add` die Ware, und `Trade expire` / `Trade cancel …` / `Trade decline …` das
+Ende.
+
+Der Ledger bucht davon nur die abgeschlossenen Trades — alles andere ist keine Buchung.
+Für die Erinnerung ist aber gerade der Rest wichtig, deshalb landet **jeder** gesehene Trade
+im Panel *Angebote*: mit wem, was, wie viel, zu welchem Preis und wie es ausgegangen ist.
+Dazu ein Notizfeld, das dir gehört und keinen Import überschrieben bekommt.
+
+Zwei Dinge dazu:
+
+- **„Offen" heißt nicht „läuft noch".** Es heißt: im gelesenen Ausschnitt des Logs steht kein
+  Ende. Ist der Abschluss älter als der Import, bleibt der Trade als offen stehen — dann hilft
+  ein größerer Ausschnitt. Umgekehrt wird ein einmal beendeter Trade **nie** wieder auf offen
+  zurückgedreht, auch wenn ein späterer, kürzerer Import nur noch seine Eröffnung sieht.
+- **Der Preis aus dem Angebotstext ist nur ein Hinweis.** Hat die Gegenseite Geld hinterlegt,
+  wird damit gerechnet; sonst bleibt der Stückpreis aus dem frei eingetippten Text und die
+  Zeile sagt *laut Text* dazu.
+
+Die Angebote liegen unter `tbf.offers.v1` im localStorage, die neuesten 500.
+
 **Verkäufe ohne Einstand fließen nicht in den Profit.** Wer Ware verkauft, die vor dem
 ersten Import gekauft wurde, hätte sonst reinen Fantasiegewinn in der Bilanz. Diese Menge
 wird stattdessen als eigene Kachel *Ohne Einstand* ausgewiesen.
@@ -436,7 +461,8 @@ ledger.html         Buchführung über Käufe, Verkäufe und Profit
 js/ledger.js        Ereignismodell, FIFO-Zuordnung, Kennzahlen
 js/ledgerStore.js   localStorage, Export und Import
 js/tornlog.js       Log-Typen und -Kategorien von Torn, Import, Bericht
-js/tradelog.js      Trades aus mehreren Log-Eintraegen zusammensetzen
+js/tradelog.js      Trades aus mehreren Log-Eintraegen zusammensetzen, Angebote
+js/offersStore.js   Angebote merken, Status fortschreiben, Notizen halten
 js/table.js         Tabellenbau mit data-label für die Kartenansicht
 js/ledgerPage.js    Verdrahtung der Ledger-Seite
 tools/make-icon.py  erzeugt icon-180.png fuer den iOS-Home-Screen
@@ -453,9 +479,9 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-201 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
+217 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
 Parallelität und Abbruch, Zeitstempel-Deutung, Scan-Ablauf, Markup, Sortierung,
-Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung und Persistenz sowie die Key-, CSP-,
+Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status und Persistenz sowie die Key-, CSP-,
 Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
 
 Der Sortier-Controller wird gegen einen kleinen DOM-Stub getestet (`tests/sorting.test.mjs`),

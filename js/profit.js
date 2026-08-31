@@ -1,6 +1,6 @@
 // Profit-Rechnung: Bazaar-Kauf gegen einen realen Ankaufspreis.
 
-import { ageHours, tooOld } from './freshness.js?v=7';
+import { ageHours, tooOld } from './freshness.js?v=8';
 
 /** Netto-Erloes pro Stueck nach Sicherheitsabschlag und Gebuehr. */
 export function netProceeds(reference, settings) {

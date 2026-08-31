@@ -20,10 +20,35 @@
 // und deshalb sind die Muster verankert: "trade items add" darf nicht auch
 // auf "trade items add other user" passen.
 
-import { makeEvent, isValidEvent } from './ledger.js?v=7';
+import { makeEvent, isValidEvent } from './ledger.js?v=8';
+
+/**
+ * Wie ein Trade geendet hat. "offen" heisst nur: im gelesenen Ausschnitt des
+ * Logs steht kein Ende - nicht, dass er noch laeuft.
+ */
+export const STATUS_LABELS = {
+  open: 'offen',
+  completed: 'abgeschlossen',
+  expired: 'abgelaufen',
+  cancelled: 'abgebrochen',
+  declined: 'abgelehnt',
+};
 
 const ROLES = [
   ['completed', /^trade completed$/i],
+  // Der Anfang traegt den Text, den man beim Anlegen eingetippt hat - oft die
+  // einzige Auskunft darueber, was man ueberhaupt angeboten hat.
+  ['initiateMine', /^trade initiate outgoing$/i],
+  ['initiateTheirs', /^trade initiate incoming$/i],
+  // Die vier Arten, auf die ein Trade endet, ohne dass etwas passiert. Danach
+  // liegt die Ware wieder im eigenen Inventar - und ohne diese Eintraege weiss
+  // niemand mehr, warum.
+  ['cancelMine', /^trade cancel outgoing$/i],
+  ['cancelTheirs', /^trade cancel incoming$/i],
+  ['declineMine', /^trade decline outgoing$/i],
+  ['declineTheirs', /^trade decline incoming$/i],
+  ['expired', /^trade expire$/i],
+  ['accepted', /^trade accepted$/i],
   ['itemsTheirs', /^trade items add other user$/i],
   ['itemsMine', /^trade items add$/i],
   ['itemsRemoveTheirs', /^trade items remove other user$/i],
@@ -190,4 +215,118 @@ export function reconstructTrades(entries, itemNames = new Map()) {
     skipped: [...skipped.values()].sort((a, b) => b.count - a.count),
     groups: groups.length,
   };
+}
+
+// ---------- Angebote ----------
+//
+// Der Ledger interessiert sich nur fuer abgeschlossene Trades. Fuer die
+// Frage "was habe ich wem angeboten" sind aber gerade die anderen wichtig:
+// laeuft ein Trade ab, liegt die Ware wieder im Inventar, und ohne den Log
+// weiss niemand mehr, wem sie zugedacht war und zu welchem Preis.
+
+/** Preis-Hinweis aus dem Angebotstext, z.B. "Brass Ingot @ $17,732". */
+export function priceFromDescription(text) {
+  const m = /@\s*\$?\s*([\d.,]+)/.exec(String(text || ''));
+  if (!m) return null;
+  // Torn schreibt Tausender mit Komma. Ein Punkt kaeme nur als Dezimaltrenner
+  // vor, und Stueckpreise sind ganzzahlig - also faellt beides weg.
+  const n = Number(m[1].replace(/[.,]/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function itemList(map, itemNames) {
+  return [...map]
+    .filter(([, qty]) => qty > 0)
+    .map(([itemId, quantity]) => ({
+      itemId,
+      quantity,
+      itemName: itemNames.get(itemId) || `Item ${itemId}`,
+    }));
+}
+
+function statusOf(role) {
+  if (role('completed').length) return { status: 'completed', by: null };
+  if (role('expired').length) return { status: 'expired', by: null };
+  if (role('cancelMine').length) return { status: 'cancelled', by: 'me' };
+  if (role('cancelTheirs').length) return { status: 'cancelled', by: 'them' };
+  if (role('declineMine').length) return { status: 'declined', by: 'me' };
+  if (role('declineTheirs').length) return { status: 'declined', by: 'them' };
+  return { status: 'open', by: null };
+}
+
+/**
+ * Beschreibt einen Trade so, wie man ihn sich merken wuerde: wer, was, wieviel,
+ * wie ausgegangen. Anders als resolveTrade() faellt hier nichts weg - auch ein
+ * abgelaufener Trade ohne Geld ist eine Auskunft.
+ */
+export function describeTrade(group, itemNames = new Map()) {
+  const role = (name) => group.byRole.get(name) || [];
+  const { status, by } = statusOf(role);
+
+  const mine = new Map();
+  for (const e of role('itemsMine')) addItems(mine, e, 1);
+  for (const e of role('itemsRemoveMine')) addItems(mine, e, -1);
+
+  const theirs = new Map();
+  for (const e of role('itemsTheirs')) addItems(theirs, e, 1);
+  for (const e of role('itemsRemoveTheirs')) addItems(theirs, e, -1);
+
+  const myItems = itemList(mine, itemNames);
+  const theirItems = itemList(theirs, itemNames);
+
+  const myMoney = totalMoney(role('moneyMine')) - totalMoney(role('moneyRemoveMine'));
+  const theirMoney = totalMoney(role('moneyTheirs')) - totalMoney(role('moneyRemoveTheirs'));
+
+  let direction = 'unknown';
+  if (myItems.length && theirItems.length) direction = 'swap';
+  else if (myItems.length) direction = 'sell';
+  else if (theirItems.length) direction = 'buy';
+
+  const initiate = role('initiateMine')[0] || role('initiateTheirs')[0] || null;
+  const description = String(initiate?.data?.description || '').trim();
+  const opener = role('initiateMine').length ? 'me' : (role('initiateTheirs').length ? 'them' : null);
+
+  const ends = [
+    ...role('completed'), ...role('expired'), ...role('cancelMine'), ...role('cancelTheirs'),
+    ...role('declineMine'), ...role('declineTheirs'),
+  ];
+  const counterparty = num(group.entries.find((e) => e.data?.user)?.data?.user) ?? null;
+  const stamps = group.entries.map((e) => e.ts).filter(Number.isFinite);
+
+  const quantity = myItems.concat(theirItems).reduce((s, i) => s + i.quantity, 0);
+  const money = Math.max(myMoney, theirMoney);
+  const askedUnitPrice = priceFromDescription(description);
+
+  return {
+    tradeId: group.tradeId,
+    ref: `trade-${group.tradeId}`,
+    status,
+    statusBy: by,
+    openedAt: initiate ? initiate.ts : Math.min(...stamps),
+    endedAt: ends.length ? Math.max(...ends.map((e) => e.ts)) : null,
+    lastSeen: Math.max(...stamps),
+    counterpartyId: counterparty,
+    openedBy: opener,
+    direction,
+    myItems,
+    theirItems,
+    myMoney,
+    theirMoney,
+    quantity,
+    money,
+    // Nur ein Hinweis: der Text ist frei eingetippt und keine Abrechnung.
+    askedUnitPrice,
+    // Was die Gegenseite hinterlegt hat, ist belastbarer als der Text - sonst
+    // bleibt der Stueckpreis aus dem Angebot.
+    unitPrice: quantity > 0 && money > 0 ? money / quantity : askedUnitPrice,
+    description,
+    note: '',
+  };
+}
+
+/** Alle Trades eines Log-Abzugs als Angebote, neueste zuerst. */
+export function offersFromLog(entries, itemNames = new Map()) {
+  return groupByTrade(entries)
+    .map((group) => describeTrade(group, itemNames))
+    .sort((a, b) => b.lastSeen - a.lastSeen);
 }

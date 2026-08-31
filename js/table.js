@@ -3,7 +3,7 @@
 // Erzeugt dasselbe Markup wie der Scanner - data-label an jeder Zelle - damit
 // die Kartenansicht auf dem Handy ohne Zusatzarbeit greift.
 
-import { escapeHtml } from './ui.js?v=7';
+import { escapeHtml } from './ui.js?v=8';
 
 /**
  * @param {Array<{key:string,label:string,align?:string,cell:(row)=>({text?:string,html?:string})}>} columns

@@ -1,23 +1,25 @@
-import { loadSettings, saveSettings } from './storage.js?v=7';
+import { loadSettings, saveSettings } from './storage.js?v=8';
 import {
   makeEvent, matchFifo, summarise, profitByItem,
   PERIODS, periodRange, filterByRange,
-} from './ledger.js?v=7';
+} from './ledger.js?v=8';
 import {
   loadEvents, saveEvents, addEvents, removeEvent, clearLedger,
   exportJson, parseImport, markExported, lastExport,
-} from './ledgerStore.js?v=7';
+} from './ledgerStore.js?v=8';
 import {
   fetchLog, fetchLogTypes, fetchLogCategories, deriveLogTypes, deriveCategories,
   inspect, TornLogError,
-} from './tornlog.js?v=7';
-import { reconstructTrades } from './tradelog.js?v=7';
-import { fetchMarketplace } from './weav3r.js?v=7';
-import { renderTable } from './table.js?v=7';
-import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=7';
-import { APP_VERSION } from './config.js?v=7';
+} from './tornlog.js?v=8';
+import { reconstructTrades, offersFromLog, STATUS_LABELS } from './tradelog.js?v=8';
+import { loadOffers, mergeOffers, setNote, removeOffer } from './offersStore.js?v=8';
+import { fetchMarketplace } from './weav3r.js?v=8';
+import { renderTable } from './table.js?v=8';
+import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=8';
+import { APP_VERSION } from './config.js?v=8';
 
 let events = [];
+let offers = [];
 let pendingImport = [];
 
 const dateFmt = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
@@ -112,6 +114,114 @@ const ITEM_COLUMNS = [
   },
 ];
 
+// ---------- Angebote ----------
+
+const TRADE_URL = 'https://www.torn.com/trade.php#step=view&ID=';
+const PROFILE_URL = 'https://www.torn.com/profiles.php?XID=';
+
+function offerItems(offer) {
+  const side = offer.myItems.length ? offer.myItems : offer.theirItems;
+  if (!side.length) return offer.money > 0 ? 'nur Geld' : '—';
+  return side.map((i) => `${fmtUnits.format(i.quantity)}× ${i.itemName}`).join(', ');
+}
+
+/** Was der Trade fuer dich bedeutet - aus der Richtung heraus benannt. */
+function offerDirection(offer) {
+  return { sell: 'Verkauf', buy: 'Kauf', swap: 'Tausch' }[offer.direction] || '—';
+}
+
+function statusText(offer) {
+  const label = STATUS_LABELS[offer.status] || offer.status;
+  if (offer.status === 'cancelled' || offer.status === 'declined') {
+    return offer.statusBy === 'me' ? `${label} (von dir)` : `${label} (von ihm)`;
+  }
+  return label;
+}
+
+const OFFER_COLUMNS = [
+  {
+    key: 'what',
+    label: 'Angebot',
+    align: 'left',
+    cell: (o) => ({
+      html: `<a class="item-link" href="${TRADE_URL}${encodeURIComponent(o.tradeId)}" target="_blank" rel="noopener">`
+        + `${escapeHtml(offerItems(o))}<span class="ext" aria-hidden="true">&#8599;</span></a>`
+        // Der Text aus dem Angebot ist oft das Einzige, was den Preis nennt.
+        + (o.description ? `<span class="tag">${escapeHtml(o.description)}</span>` : ''),
+    }),
+  },
+  {
+    key: 'who',
+    label: 'Mit',
+    align: 'left',
+    cell: (o) => ({
+      html: o.counterpartyId
+        ? `<a href="${PROFILE_URL}${encodeURIComponent(o.counterpartyId)}" target="_blank" rel="noopener">`
+          + `${escapeHtml(String(o.counterpartyId))}</a>`
+        : '—',
+    }),
+  },
+  { key: 'kind', label: 'Art', cell: (o) => ({ text: offerDirection(o) }) },
+  { key: 'date', label: 'Angelegt', cell: (o) => ({ text: fmtDate(o.openedAt) }) },
+  {
+    key: 'price',
+    label: 'Preis/Stück',
+    cell: (o) => ({
+      // Ohne hinterlegtes Geld bleibt nur der Preis aus dem Angebotstext, und
+      // der ist frei eingetippt - deshalb als Schaetzung gekennzeichnet.
+      html: Number.isFinite(o.unitPrice) && o.unitPrice > 0
+        ? escapeHtml(fmtMoney(o.unitPrice)) + (o.money > 0 ? '' : '<span class="tag">laut Text</span>')
+        : '—',
+    }),
+  },
+  {
+    key: 'status',
+    label: 'Status',
+    cell: (o) => ({
+      text: statusText(o),
+      cls: o.status === 'completed' ? 'pos' : (o.status === 'open' ? '' : 'warn-text'),
+    }),
+  },
+  {
+    key: 'note',
+    label: 'Notiz',
+    align: 'left',
+    cell: (o) => ({
+      html: `<button class="link-btn" data-note="${escapeHtml(String(o.tradeId))}">`
+        + `${o.note ? escapeHtml(o.note) : 'Notiz…'}</button>`,
+    }),
+  },
+  {
+    key: 'del',
+    label: '',
+    cell: (o) => ({ html: `<button class="link-btn" data-drop="${escapeHtml(String(o.tradeId))}">löschen</button>` }),
+  },
+];
+
+function visibleOffers() {
+  const mode = document.getElementById('offerFilter').value;
+  if (mode === 'open') return offers.filter((o) => o.status === 'open');
+  if (mode === 'unfinished') return offers.filter((o) => o.status !== 'completed');
+  return offers;
+}
+
+function renderOffers() {
+  const rows = [...visibleOffers()].sort((a, b) => b.openedAt - a.openedAt);
+  renderTable('offerTable', OFFER_COLUMNS, rows, {
+    empty: offers.length
+      ? 'Nichts in dieser Auswahl — probier „alle".'
+      : 'Noch nichts importiert. Der Import unten liest die Angebote aus dem Torn-Log.',
+  });
+  document.getElementById('offerCount').textContent = String(offers.filter((o) => o.status === 'open').length);
+
+  const hint = document.getElementById('offerHint');
+  const open = offers.filter((o) => o.status === 'open').length;
+  hint.textContent = open
+    ? `„Offen" heißt: im gelesenen Ausschnitt des Logs steht kein Ende. Ein Trade, dessen `
+      + `Abschluss älter ist als der Import, bleibt hier stehen — dann hilft ein größerer Ausschnitt.`
+    : '';
+}
+
 // ---------- Aufbau ----------
 
 function fillPeriods(selected) {
@@ -165,12 +275,11 @@ function render() {
   renderTable('openTable', OPEN_COLUMNS, all.openLots, { empty: 'Kein offener Bestand.' });
   renderTable('salesTable', SALE_COLUMNS, scoped.sales, {
     // Nur Kaeufe erfasst und nichts verkauft heisst nicht, dass der Ledger
-    // kaputt ist - beim Flippen laufen die Verkaeufe ueber Trades, und die
-    // kann der Import noch nicht zuordnen. Ohne diesen Hinweis sieht die
-    // Seite nach Fehler aus.
+    // kaputt ist. Verkaeufe ueber Trades werden zwar zugeordnet, aber nur die
+    // abgeschlossenen - offene und abgelaufene stehen unter "Angebote".
     empty: all.openLots.length
-      ? 'Keine Verkäufe erfasst, aber Bestand vorhanden. Verkäufe über Trades kann der Import '
-        + 'noch nicht zuordnen — bis dahin unten von Hand erfassen.'
+      ? 'Keine Verkäufe im Zeitraum, aber Bestand vorhanden. Abgeschlossene Trades kommen beim '
+        + 'Import mit; was noch offen oder abgelaufen ist, steht unter „Angebote".'
       : `Keine Verkäufe im Zeitraum (${periodSubtitle(range)}).`,
   });
   renderTable('byItemTable', ITEM_COLUMNS, profitByItem(scoped.sales), { empty: 'Noch nichts verkauft.' });
@@ -191,7 +300,9 @@ function render() {
 
 function reload() {
   events = loadEvents();
+  offers = loadOffers();
   render();
+  renderOffers();
 }
 
 // ---------- Key ----------
@@ -261,12 +372,21 @@ async function importFromLog() {
     pendingImport = [...result.events, ...trades.events];
     backfillNames(itemNames);
 
+    // Angebote landen sofort im Speicher, nicht erst beim Uebernehmen: sie
+    // sind keine Buchung, sondern ein Gedaechtnisstuetze - und je frueher sie
+    // dasteht, desto eher hilft sie.
+    const seen = offersFromLog(entries, itemNames);
+    const merged = mergeOffers(seen);
+    offers = merged.offers;
+    renderOffers();
+
     const lines = [];
     // Steht bewusst als erste Zeile: ohne sie laesst sich ein Bericht nicht
     // dem Code zuordnen, der ihn erzeugt hat.
     lines.push(`Build ${APP_VERSION} — ${new Date().toLocaleString('de-DE')}`);
     lines.push(`${entries.length} Log-Einträge gelesen, ${pendingImport.length} Vorgänge erkannt `
       + `(${result.events.length} direkt, ${trades.events.length} aus ${trades.groups} Trades).`);
+    lines.push(`${seen.length} Angebote gesehen: ${merged.added} neu, ${merged.updated} mit neuem Status.`);
     const catNames = cats.map((c) => `${c.title} (${c.id})`).join(', ');
     lines.push(usedFilter
       ? `Kategorien gelesen: ${catNames || '—'}`
@@ -326,12 +446,18 @@ async function importFromLog() {
 
     report.hidden = false;
     report.textContent = lines.join('\n');
-    document.getElementById('applyImportBtn').disabled = result.events.length === 0;
+    // Der Knopf haengt an allem, was buchbar ist - nicht nur an den direkten
+    // Eintraegen. Wer nur ueber Trades handelt, konnte sonst nichts uebernehmen.
+    document.getElementById('applyImportBtn').disabled = pendingImport.length === 0;
+    const teile = [];
+    if (pendingImport.length) teile.push(`${pendingImport.length} Vorgänge zum Übernehmen`);
+    if (merged.added) teile.push(`${merged.added} neue Angebote`);
+    if (merged.updated) teile.push(`${merged.updated} Angebote mit neuem Status`);
     setStatus(
-      result.events.length
-        ? `${result.events.length} Vorgänge gefunden — prüfen und übernehmen.`
+      teile.length
+        ? `${teile.join(', ')}.`
         : 'Nichts erkannt. Der Bericht zeigt, welche Kategorien dein Log enthält.',
-      result.events.length ? 'ok' : 'error',
+      teile.length ? 'ok' : 'error',
     );
   } catch (err) {
     report.hidden = false;
@@ -475,6 +601,28 @@ function init() {
     events = removeEvent(id);
     render();
     setStatus('Position gelöscht.', 'ok');
+  });
+
+  document.getElementById('offerFilter').addEventListener('change', renderOffers);
+
+  // Notiz und Loeschen laufen ueber Delegation, weil die Tabelle bei jeder
+  // Aenderung neu gebaut wird.
+  document.getElementById('offerTable').addEventListener('click', (ev) => {
+    const noteId = ev.target?.dataset?.note;
+    if (noteId) {
+      const current = offers.find((o) => String(o.tradeId) === noteId);
+      const text = prompt('Notiz zu diesem Angebot:', current?.note || '');
+      if (text === null) return;
+      offers = setNote(noteId, text);
+      renderOffers();
+      return;
+    }
+    const dropId = ev.target?.dataset?.drop;
+    if (dropId) {
+      offers = removeOffer(dropId);
+      renderOffers();
+      setStatus('Angebot entfernt.', 'ok');
+    }
   });
 
   renderKeyState();
