@@ -3,6 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'none';
+  script-src 'self';
+  style-src 'self';
+  img-src 'self' data:;
+  connect-src https://weav3r.dev https://api.torn.com;
+  base-uri 'none';
+  form-action 'none'">
 <title>Torn Bazaar Flipper</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231c1f25'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='%234da3ff' font-family='sans-serif'%3E%24%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/app.css">
@@ -54,7 +62,7 @@
       </label>
     </div>
 
-    <h2 style="margin-top:20px">Vorauswahl</h2>
+    <h2 class="mt">Vorauswahl</h2>
     <div class="grid">
       <label class="field">Kandidat ab Rabatt
         <input type="number" id="prescreenPct" min="1" max="100" step="1">
@@ -79,7 +87,7 @@
       </label>
     </div>
 
-    <h2 style="margin-top:20px">Filter</h2>
+    <h2 class="mt">Filter</h2>
     <div class="grid">
       <label class="field">Min. Profit pro Stück ($)
         <input type="number" id="minProfitAbs" min="0" step="1000">
@@ -101,7 +109,7 @@
       </label>
     </div>
 
-    <h2 style="margin-top:20px">Optionale Keys</h2>
+    <h2 class="mt">Optionale Keys</h2>
     <div class="grid">
       <label class="field">Torn API-Key
         <input type="password" id="tornKey" autocomplete="off" placeholder="optional">
@@ -120,7 +128,7 @@
   </details>
 
   <div class="panel">
-    <div class="actions" style="margin-top:0">
+    <div class="actions mt0">
       <button id="scanBtn" class="primary">Scan starten</button>
       <button id="stopBtn" disabled>Stopp</button>
       <span id="status"></span>

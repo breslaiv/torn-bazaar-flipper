@@ -152,3 +152,11 @@ pre.raw {
   border-radius: 0 5px 5px 0;
   margin: 0 0 14px;
 }
+
+/* Kein style="" im Markup: die Content-Security-Policy verbietet
+   Inline-Styles, damit nichts Eingeschleustes gerendert werden kann. */
+/* Spezifisch genug, um .panel > h2 bzw. .actions zu ueberstimmen -
+   ohne Inline-Style gewinnt sonst die allgemeinere Regel. */
+.panel > h2.mt { margin-top: 20px; }
+.actions.mt0 { margin-top: 0; }
+.empty { color: var(--muted); }

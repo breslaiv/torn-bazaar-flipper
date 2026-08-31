@@ -48,7 +48,7 @@ export function renderRows(rows) {
   if (!tbody) return;
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="left" style="color:#949cab">Keine Treffer.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="left empty">Keine Treffer.</td></tr>';
     return;
   }
 

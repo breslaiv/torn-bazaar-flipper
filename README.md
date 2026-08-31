@@ -49,13 +49,61 @@ Seite öffnen, **Scan starten**. Mehr braucht es nicht — alle genutzten Routen
 
 Zwei optionale Keys, beide nur im `localStorage` des Browsers und nie im Repository:
 
-- **Torn API-Key** (Public Access reicht): schaltet die Gegenprobe gegen den echten
+- **Torn API-Key** (*Public Only* reicht): schaltet die Gegenprobe gegen den echten
   Item-Market-Tiefstpreis frei, angezeigt als `IM $…` an der Trefferzeile.
 - **weav3r API-Key**: für die hier genutzten Routen nicht nötig, nur für Pricelist- und
   Trade-Endpunkte.
 
 Bricht ein Scan mit einem Netzwerkfehler ab: `diagnose.html` öffnen und **Alle Routen
 testen**. Die Seite geht jede benutzte Route einzeln durch und zeigt, woran es hängt.
+
+## Sicherheit der API-Keys
+
+GitHub Pages verlangt im Free-Tier ein öffentliches Repository. **Das macht die Keys nicht
+öffentlich** — sie stehen nirgends im Repo. Öffentlich wird der Quelltext; die Keys liegen im
+`localStorage` des jeweiligen Browsers, gehen nie an GitHub und nie an einen Server dieses
+Projekts. Wer die Seite besucht, sieht ausschließlich seinen eigenen Key.
+
+Damit bleiben zwei reale Risiken, und beide sind abgedeckt:
+
+**1. Ein Key landet versehentlich im Code.** Die Git-Historie eines öffentlichen Repos ist
+dauerhaft einsehbar — ein späteres Löschen hilft nicht mehr. `tests/no-secrets.test.mjs`
+prüft bei jedem Push, dass kein Key an eine Key-Variable hartcodiert ist, in keiner URL
+steht und die Voreinstellungen in `config.js` leer ausgeliefert werden. `.gitignore` sperrt
+zusätzlich `.env`, `secrets.*`, `credentials.*` und `*.key`.
+
+**2. Eingeschleuster Code schickt den Key nach draußen.** Beide Seiten setzen eine
+Content-Security-Policy:
+
+```
+default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;
+connect-src https://weav3r.dev https://api.torn.com; base-uri 'none'; form-action 'none'
+```
+
+`connect-src` ist die entscheidende Zeile: der Browser lässt Verbindungen **nur** zu diesen
+zwei Hosts zu. Ein Versuch, den `localStorage` an einen fremden Server zu senden, wird
+blockiert, bevor der Request die Maschine verlässt. `script-src 'self'` ohne `unsafe-inline`
+verhindert, dass überhaupt fremder Code läuft. Deshalb enthält keine Seite Inline-Scripts
+oder `style=`-Attribute — die Testsuite prüft auch das, sonst würde die Policy still etwas
+kaputtmachen.
+
+Alle Werte aus der API werden vor dem Rendern escaped, Spieler-IDs in Links laufen durch
+`Number()`. Ein Itemname wie `<img src=x onerror=…>` erscheint als Text, nicht als Element.
+
+Was du selbst tun solltest:
+
+- **Nimm einen *Public Only*-Key.** Er reicht für alles, was die App tut. Selbst wenn er
+  abhandenkommt, gibt er nur öffentliche Daten preis — kein Geld, kein Inventar, keine Mails.
+- **Key auf einem fremden Rechner?** Danach *Einstellungen zurücksetzen* klicken, das leert
+  den `localStorage`.
+- **Verdacht auf Kompromittierung:** Key unter
+  [Preferences → API Key](https://www.torn.com/preferences.php#tab=api) löschen und neu
+  erzeugen. Das ist sofort wirksam.
+
+Der Torn-Key wandert als Query-Parameter (`?key=`) statt als `Authorization`-Header — das
+ist bei Torn üblich und vermeidet einen CORS-Preflight. Er steht damit in keiner
+Adresszeile und in keinem Browserverlauf, weil er nur in `fetch`-Aufrufen vorkommt.
+
 
 ## Hosting auf GitHub Pages
 
@@ -99,7 +147,7 @@ js/scan.js          Ablauf eines Scans, abbrechbar, mit Fortschrittsmeldung
 js/storage.js       localStorage
 js/ui.js            Tabelle, Formatierung, Sortierung
 js/app.js           Verdrahtung
-tests/              node --test, ohne Abhängigkeiten
+tests/              node --test, ohne Abhängigkeiten (inkl. Secret-Scan)
 ```
 
 `scan.js` nimmt seine API-Funktionen per `deps` entgegen, deshalb laufen die Ablauf-Tests
@@ -111,7 +159,8 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-32 Tests über Response-Parsing, Vorauswahl, Profit-Rechnung und Scan-Ablauf.
+39 Tests über Response-Parsing, Vorauswahl, Profit-Rechnung, Scan-Ablauf sowie die
+Key- und CSP-Prüfungen aus dem Abschnitt Sicherheit.
 
 ## Grenzen
 
