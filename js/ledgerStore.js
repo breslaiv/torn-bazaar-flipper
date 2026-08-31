@@ -5,7 +5,7 @@
 // wurden. Deshalb gibt es Export und Import als JSON, und die Oberflaeche
 // weist darauf hin, solange nie exportiert wurde.
 
-import { makeEvent, isValidEvent, dedupe } from './ledger.js?v=1';
+import { makeEvent, isValidEvent, dedupe } from './ledger.js?v=2';
 
 export const LEDGER_KEY = 'tbf.ledger.v1';
 export const EXPORT_KEY = 'tbf.ledger.exported.v1';

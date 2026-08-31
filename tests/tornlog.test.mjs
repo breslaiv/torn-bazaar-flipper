@@ -2,7 +2,64 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   normaliseLog, normaliseLogTypes, deriveLogTypes, classify, mapEntry, inspect, RULES,
+  MAX_FILTER_IDS,
 } from '../js/tornlog.js';
+
+// Die echte Typenliste aus Torn, gekuerzt auf das Wesentliche plus die
+// Trade-Typen, die den Serverfilter gesprengt haben.
+const REAL_TYPES = [
+  { id: 1103, title: 'Item market buy (old)' }, { id: 1104, title: 'Item market sell (old)' },
+  { id: 1112, title: 'Item market buy' }, { id: 1113, title: 'Item market sell' },
+  { id: 1220, title: 'Bazaar buy (legacy)' }, { id: 1221, title: 'Bazaar sell (legacy)' },
+  { id: 1225, title: 'Bazaar buy' }, { id: 1226, title: 'Bazaar sell' },
+  { id: 4400, title: 'Trade initiate outgoing' }, { id: 4410, title: 'Trade cancel outgoing' },
+  { id: 4412, title: 'Trade decline outgoing' }, { id: 4420, title: 'Trade expire' },
+  { id: 4430, title: 'Trade completed' }, { id: 4431, title: 'Trade accepted' },
+  { id: 4440, title: 'Trade money outgoing' }, { id: 4442, title: 'Trade money add' },
+  { id: 4445, title: 'Trade items outgoing' }, { id: 4446, title: 'Trade items incoming' },
+  { id: 4447, title: 'Trade items add' }, { id: 4460, title: 'Trade NAPs (legacy)' },
+  { id: 4465, title: 'Trade peace treaties' }, { id: 4470, title: 'Trade faction outgoing' },
+  { id: 4475, title: 'Trade company outgoing' }, { id: 4498, title: 'Trade comment' },
+  { id: 8150, title: 'Attack won' },
+];
+
+test('der Serverfilter bleibt klein genug, um zu antworten', () => {
+  // 63 Typen tragen "Trade" im Namen. Alle anzufragen liess /user/log leer
+  // antworten - aus 100 Eintraegen wurden 0.
+  const { ids, matched } = deriveLogTypes(REAL_TYPES);
+  assert.ok(ids.length <= MAX_FILTER_IDS, `${ids.length} Ids sind zu viele`);
+  assert.ok(ids.length <= 12, `${ids.length} Ids: die Trade-Regel greift zu weit`);
+
+  const titles = matched.map((m) => m.title);
+  assert.ok(!titles.includes('Trade faction outgoing'), 'Faction-Trades gehoeren nicht dazu');
+  assert.ok(!titles.includes('Trade company outgoing'));
+  assert.ok(!titles.includes('Trade peace treaties'));
+  assert.ok(!titles.includes('Trade comment'));
+  assert.ok(!titles.includes('Trade NAPs (legacy)'));
+  assert.ok(!titles.includes('Trade initiate outgoing'), 'ein eroeffneter Trade ist kein Handel');
+  assert.ok(!titles.includes('Trade cancel outgoing'));
+  assert.ok(!titles.includes('Trade expire'));
+});
+
+test('die vier Trade-Typen mit Warenbewegung bleiben im Bericht', () => {
+  const { byId } = deriveLogTypes(REAL_TYPES);
+  for (const id of [4430, 4431, 4445, 4446]) {
+    assert.equal(byId.get(id), 'trade', `Typ ${id} fehlt`);
+  }
+});
+
+test('alle Kauf- und Verkaufstypen bleiben erhalten', () => {
+  const { byId } = deriveLogTypes(REAL_TYPES);
+  for (const id of [1103, 1112, 1220, 1225]) assert.equal(byId.get(id), 'buy', `Typ ${id}`);
+  for (const id of [1104, 1113, 1221, 1226]) assert.equal(byId.get(id), 'sell', `Typ ${id}`);
+});
+
+test('zu viele Treffer werden gedeckelt und gemeldet', () => {
+  const viele = Array.from({ length: 40 }, (_, i) => ({ id: 9000 + i, title: 'Bazaar buy' }));
+  const { ids, truncated } = deriveLogTypes(viele);
+  assert.equal(ids.length, MAX_FILTER_IDS);
+  assert.equal(truncated, 40 - MAX_FILTER_IDS);
+});
 
 // Form laut OpenAPI 6.13.1: Titel und Kategorie stecken unter details.
 const raw = (over = {}) => ({

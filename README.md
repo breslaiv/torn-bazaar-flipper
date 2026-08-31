@@ -151,6 +151,14 @@ heisst, schon der Typ passt zu keiner Regel. Passt etwas nicht, ist das eine Zei
 aus `cost_each` genommen, nicht aus Summe durch Menge — dasselbe Ergebnis ohne
 Rundungsrisiko. Fehlt `cost_each`, bleibt die Division als Rückfall.
 
+**Der Serverfilter bleibt klein.** Torn führt 63 Log-Typen mit „Trade" im Namen — Faction,
+Company, Shares, Peace Treaties, Kommentare. Eine Regel auf `\btrade\b` schrieb sie alle in
+`log=` und `/user/log` antwortete daraufhin **leer**: aus 100 Einträgen wurden 0. Die Regel
+greift jetzt nur noch auf die vier Typen, bei denen Ware den Besitzer wechselt, dazu eine
+Obergrenze von 25 Ids. Und falls ein gefilterter Aufruf trotzdem nichts liefert, wird
+einmal ungefiltert nachgelesen — der Bericht sagt, welcher Weg gegriffen hat. Ein leeres
+Ergebnis ist damit nie mehr von „nichts passiert" ununterscheidbar.
+
 **Trades werden nicht automatisch gebucht.** Über einen Trade lässt sich genauso einkaufen
 wie verkaufen, und aus dem Titel („Trade accepted") geht die Richtung nicht hervor. Ein als
 Verkauf gebuchter Einkauf wäre erfundener Gewinn, deshalb landen Trades vorerst im Bericht
@@ -362,7 +370,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-146 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
+150 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
 Markup, Sortierung, Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung und Persistenz sowie
 die Key-, CSP-, Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
 

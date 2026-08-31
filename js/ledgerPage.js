@@ -1,16 +1,16 @@
-import { loadSettings, saveSettings } from './storage.js?v=1';
+import { loadSettings, saveSettings } from './storage.js?v=2';
 import {
   makeEvent, matchFifo, summarise, filterByPeriod, profitByItem,
-} from './ledger.js?v=1';
+} from './ledger.js?v=2';
 import {
   loadEvents, saveEvents, addEvents, removeEvent, clearLedger,
   exportJson, parseImport, markExported, lastExport,
-} from './ledgerStore.js?v=1';
-import { fetchLog, fetchLogTypes, deriveLogTypes, inspect, TornLogError } from './tornlog.js?v=1';
-import { fetchMarketplace } from './weav3r.js?v=1';
-import { renderTable } from './table.js?v=1';
-import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=1';
-import { APP_VERSION } from './config.js?v=1';
+} from './ledgerStore.js?v=2';
+import { fetchLog, fetchLogTypes, deriveLogTypes, inspect, TornLogError } from './tornlog.js?v=2';
+import { fetchMarketplace } from './weav3r.js?v=2';
+import { renderTable } from './table.js?v=2';
+import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=2';
+import { APP_VERSION } from './config.js?v=2';
 
 let events = [];
 let pendingImport = [];
@@ -201,11 +201,11 @@ async function importFromLog() {
     // daraus die Kauf- und Verkaufstypen ableiten, dann serverseitig danach
     // filtern - das erspart es, irrelevante Kategorien durchzublaettern.
     setStatus('Lade Torns Log-Typen…');
-    const { ids, byId, matched } = deriveLogTypes(await fetchLogTypes(settings.tornKey));
+    const { ids, byId, matched, truncated } = deriveLogTypes(await fetchLogTypes(settings.tornKey));
 
     setStatus('Lese Torn-Log…');
     const maxEntries = Number(document.getElementById('logMax').value) || 300;
-    const entries = await fetchLog(settings.tornKey, { maxEntries, logIds: ids });
+    const { entries, usedFilter, fellBack } = await fetchLog(settings.tornKey, { maxEntries, logIds: ids });
     const result = inspect(entries, itemNames, byId);
     pendingImport = result.events;
     backfillNames(itemNames);
@@ -215,6 +215,12 @@ async function importFromLog() {
     // dem Code zuordnen, der ihn erzeugt hat.
     lines.push(`Build ${APP_VERSION} — ${new Date().toLocaleString('de-DE')}`);
     lines.push(`${entries.length} Log-Einträge gelesen, ${result.events.length} als Kauf oder Verkauf erkannt.`);
+    lines.push(usedFilter
+      ? `Serverseitig gefiltert auf ${ids.length} Log-Typen.`
+      : (fellBack
+        ? `Der Filter (${ids.length} Typen) lieferte nichts — ungefiltert nachgelesen.`
+        : 'Ungefiltert gelesen: kein Log-Typ passte auf eine Regel.'));
+    if (truncated) lines.push(`${truncated} weitere passende Typen wurden nicht angefragt (Obergrenze).`);
     lines.push('');
     lines.push('--- Zugeordnete Log-Typen (von Torn benannt) ---');
     if (matched.length) {

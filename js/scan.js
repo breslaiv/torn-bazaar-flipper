@@ -1,8 +1,8 @@
 // Ablauf eines Scans. Getrennt vom UI, damit er testbar bleibt.
 
-import { fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js?v=1';
-import { fetchItemMarketLow } from './torn.js?v=1';
-import { prescreen, pickBuyer, buildFlipRows, buildDollarRows, passesFilters, sortByTotalProfit } from './profit.js?v=1';
+import { fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js?v=2';
+import { fetchItemMarketLow } from './torn.js?v=2';
+import { prescreen, pickBuyer, buildFlipRows, buildDollarRows, passesFilters, sortByTotalProfit } from './profit.js?v=2';
 
 const noop = () => {};
 

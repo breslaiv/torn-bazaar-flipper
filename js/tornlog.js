@@ -13,9 +13,9 @@
 // Die Feldnamen innerhalb von data/params sind in der Spec bewusst offen
 // ("Dynamic key-value pairs"), deshalb bleibt die Extraktion defensiv.
 
-import { TORN_API_BASE, TORN_RATE_LIMIT } from './config.js?v=1';
-import { RateLimiter } from './ratelimit.js?v=1';
-import { makeEvent, isValidEvent } from './ledger.js?v=1';
+import { TORN_API_BASE, TORN_RATE_LIMIT } from './config.js?v=2';
+import { RateLimiter } from './ratelimit.js?v=2';
+import { makeEvent, isValidEvent } from './ledger.js?v=2';
 
 export const limiter = new RateLimiter(TORN_RATE_LIMIT, 'torn-log');
 
@@ -37,12 +37,22 @@ export const RULES = [
   { kind: 'sell', title: /\b(bazaar|item market|itemmarket)\b.*\b(sell|sold)/i },
   { kind: 'buy', title: /^(buy|bought|purchas)/i },
   { kind: 'sell', title: /^(sell|sold)/i },
-  // Ein Trade kann in beide Richtungen gehen: man kann darueber genauso gut
-  // einkaufen. Aus dem Titel allein laesst sich das nicht entscheiden, und ein
-  // als Verkauf gebuchter Einkauf wuerde den Profit erfinden. Deshalb 'trade'
-  // statt 'sell' - die Richtung muss aus den Daten kommen.
-  { kind: 'trade', title: /\btrade\b/i },
+  // Nur Trade-Typen, bei denen ueberhaupt Items den Besitzer wechseln. Torn
+  // fuehrt 63 Typen mit "Trade" im Namen - Faction, Company, Shares,
+  // Peace Treaties, Kommentare. Die alle in den Serverfilter zu schreiben
+  // liess /user/log leer antworten.
+  //
+  // Die Richtung bleibt offen: 'Trade completed' sagt nichts darueber, und
+  // ob 'items outgoing' den Abschluss meint oder schon das Bestuecken einer
+  // spaeter abgebrochenen Kiste, ist ungeklaert. Ein als Verkauf gebuchter
+  // Einkauf wuerde Profit erfinden.
+  { kind: 'trade', title: /^trade (items (outgoing|incoming)|completed|accepted)$/i },
 ];
+
+// Ein Serverfilter mit sehr vielen Ids liefert nichts zurueck. Die Grenze ist
+// nicht dokumentiert, deshalb eine konservative Obergrenze plus der Rueckfall
+// in fetchLog, falls gefiltert trotzdem nichts kommt.
+export const MAX_FILTER_IDS = 25;
 
 const ITEM_ID_KEYS = ['item', 'item_id', 'itemId', 'itemID'];
 const ITEM_ID_KEYS_IN_ARRAY = ['id', ...ITEM_ID_KEYS];
@@ -121,13 +131,23 @@ export function deriveLogTypes(logTypes) {
     byId.set(type.id, rule.kind);
     matched.push({ ...type, kind: rule.kind });
   }
-  return { ids: [...byId.keys()], byId, matched };
+  const all = [...byId.keys()];
+  return {
+    ids: all.slice(0, MAX_FILTER_IDS),
+    truncated: Math.max(0, all.length - MAX_FILTER_IDS),
+    byId,
+    matched,
+  };
 }
 
 /** Kauf oder Verkauf - ueber die Typ-Id, ersatzweise ueber den Titel. */
 export function classify(entry, byId = new Map()) {
   if (entry.typeId !== undefined && byId.has(entry.typeId)) return byId.get(entry.typeId);
-  const rule = RULES.find((r) => r.title.test(`${entry.category} ${entry.title}`.trim()));
+  // Die Regeln sind gegen die Titel aus /torn/logtypes geschrieben, also
+  // zuerst gegen den blossen Titel pruefen. Kategorie plus Titel bleibt als
+  // zweiter Versuch, verankerte Muster wuerden daran sonst scheitern.
+  const rule = RULES.find((r) => r.title.test(entry.title))
+    || RULES.find((r) => r.title.test(`${entry.category} ${entry.title}`.trim()));
   return rule ? rule.kind : null;
 }
 
@@ -259,6 +279,7 @@ export async function fetchLogTypes(key, { signal } = {}) {
 export async function fetchLog(key, { maxEntries = 300, logIds = [], signal } = {}) {
   const collected = [];
   let next = null;
+  let usedFilter = logIds.length > 0;
 
   while (collected.length < maxEntries) {
     let url;
@@ -284,5 +305,13 @@ export async function fetchLog(key, { maxEntries = 300, logIds = [], signal } = 
     if (!next || page.length < 100) break;
   }
 
-  return collected.slice(0, maxEntries);
+  // Ein gefilterter Aufruf, der nichts liefert, ist nicht von "nichts
+  // passiert" zu unterscheiden. Statt das offen zu lassen, einmal ungefiltert
+  // nachfassen - der Bericht sagt dann, welcher Weg gegriffen hat.
+  if (!collected.length && usedFilter) {
+    const fallback = await fetchLog(key, { maxEntries, logIds: [], signal });
+    return { entries: fallback.entries, usedFilter: false, fellBack: true };
+  }
+
+  return { entries: collected.slice(0, maxEntries), usedFilter, fellBack: false };
 }
