@@ -37,13 +37,21 @@ export const RULES = [
   { kind: 'sell', title: /\b(bazaar|item market|itemmarket)\b.*\b(sell|sold)/i },
   { kind: 'buy', title: /^(buy|bought|purchas)/i },
   { kind: 'sell', title: /^(sell|sold)/i },
-  { kind: 'sell', title: /\btrade\b.*\b(accept|complet|receiv)/i },
+  // Ein Trade kann in beide Richtungen gehen: man kann darueber genauso gut
+  // einkaufen. Aus dem Titel allein laesst sich das nicht entscheiden, und ein
+  // als Verkauf gebuchter Einkauf wuerde den Profit erfinden. Deshalb 'trade'
+  // statt 'sell' - die Richtung muss aus den Daten kommen.
+  { kind: 'trade', title: /\btrade\b/i },
 ];
 
 const ITEM_ID_KEYS = ['item', 'item_id', 'itemId', 'itemID'];
 const ITEM_ID_KEYS_IN_ARRAY = ['id', ...ITEM_ID_KEYS];
 const QTY_KEYS = ['quantity', 'qty', 'amount', 'items_amount'];
-const MONEY_KEYS = ['cost', 'price', 'money', 'value', 'total', 'total_cost', 'worth'];
+// Aus echten Log-Eintraegen: Bazaar und Item Market nennen cost_each und
+// cost_total. cost_each ist der Stueckpreis und wird bevorzugt - Summe durch
+// Menge zu teilen waere derselbe Wert mit Rundungsrisiko.
+const MONEY_EACH_KEYS = ['cost_each', 'price_each', 'unit_price', 'unitPrice', 'each'];
+const MONEY_TOTAL_KEYS = ['cost_total', 'total_cost', 'cost', 'price', 'money', 'value', 'total', 'worth'];
 const PARTNER_KEYS = ['seller', 'buyer', 'user', 'user_id', 'userId', 'partner', 'sender', 'receiver'];
 
 function pick(obj, keys) {
@@ -130,6 +138,11 @@ export function classify(entry, byId = new Map()) {
 export function mapEntry(entry, itemNames = new Map(), byId = new Map()) {
   const kind = classify(entry, byId);
   if (!kind) return { skip: 'unbekannter Log-Typ' };
+  if (kind === 'trade') {
+    // Sobald die Felder eines Trade-Eintrags bekannt sind, kommt hier die
+    // Richtungserkennung hin. Bis dahin lieber melden als falsch buchen.
+    return { skip: 'Trade: Richtung (Kauf oder Verkauf) nicht erkennbar' };
+  }
 
   const data = entry.data || {};
 
@@ -145,9 +158,12 @@ export function mapEntry(entry, itemNames = new Map(), byId = new Map()) {
   if (itemId === undefined) return { skip: 'keine Item-ID im Eintrag' };
 
   const quantity = num(pick(single, QTY_KEYS)) ?? 1;
-  const money = num(pick(data, MONEY_KEYS));
-  if (money === undefined) return { skip: 'kein Betrag im Eintrag' };
   if (quantity <= 0) return { skip: 'Menge ist null' };
+
+  const each = num(pick(data, MONEY_EACH_KEYS));
+  const total = num(pick(data, MONEY_TOTAL_KEYS));
+  if (each === undefined && total === undefined) return { skip: 'kein Betrag im Eintrag' };
+  const unitPrice = each !== undefined ? each : total / quantity;
 
   const event = makeEvent({
     ts: entry.ts,
@@ -155,8 +171,7 @@ export function mapEntry(entry, itemNames = new Map(), byId = new Map()) {
     itemId,
     itemName: itemNames.get(itemId) || `Item ${itemId}`,
     quantity,
-    // Der Log nennt die Summe des Vorgangs, der Ledger rechnet je Stueck.
-    unitPrice: money / quantity,
+    unitPrice,
     counterpartyId: num(pick(data, PARTNER_KEYS)) ?? null,
     source: 'torn-log',
     ref: entry.id,
@@ -176,16 +191,21 @@ export function inspect(entries, itemNames = new Map(), byId = new Map()) {
 
   for (const entry of entries) {
     const key = `${entry.category} / ${entry.title}`;
-    const cat = categories.get(key) || { key, count: 0, recognised: false, sample: entry };
+    const cat = categories.get(key)
+      || { key, count: 0, classified: false, imported: false, sample: entry };
     cat.count += 1;
+    // Zwei verschiedene Dinge: der Typ ist bekannt, und die Daten liessen sich
+    // lesen. Beides zusammenzuwerfen verschleiert, woran es haengt.
+    if (classify(entry, byId)) cat.classified = true;
     categories.set(key, cat);
 
     const result = mapEntry(entry, itemNames, byId);
     if (result.event) {
-      cat.recognised = true;
+      cat.imported = true;
       events.push(result.event);
     } else {
-      const s = skipped.get(result.skip) || { reason: result.skip, count: 0, examples: [] };
+      const s = skipped.get(result.skip)
+        || { reason: result.skip, count: 0, examples: [], sample: entry };
       s.count += 1;
       if (s.examples.length < 3) s.examples.push(key);
       skipped.set(result.skip, s);

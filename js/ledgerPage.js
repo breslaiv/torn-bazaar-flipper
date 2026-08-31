@@ -214,7 +214,10 @@ async function importFromLog() {
     lines.push('');
     lines.push('--- Zugeordnete Log-Typen (von Torn benannt) ---');
     if (matched.length) {
-      for (const m of matched) lines.push(`  ${String(m.id).padStart(6)}  ${m.kind === 'buy' ? 'Kauf   ' : 'Verkauf'}  ${m.title}`);
+      const label = { buy: 'Kauf        ', sell: 'Verkauf     ', trade: 'Richtung offen' };
+      for (const m of matched) {
+        lines.push(`  ${String(m.id).padStart(6)}  ${label[m.kind] || m.kind}  ${m.title}`);
+      }
     } else {
       lines.push('  keiner — deshalb wurde ungefiltert gelesen. Die Kategorien unten zeigen,');
       lines.push('  wie Torn die Einträge nennt; danach lassen sich die Regeln ergänzen.');
@@ -232,13 +235,17 @@ async function importFromLog() {
 
     lines.push('--- Kategorien im Log ---');
     for (const c of result.categories.slice(0, 25)) {
-      lines.push(`${String(c.count).padStart(4)} x  ${c.recognised ? '[erkannt] ' : '[      ] '}${c.key}`);
+      // Typ erkannt, Daten gelesen - zwei getrennte Haken.
+      const mark = c.imported ? '[übernommen]' : (c.classified ? '[Typ ok]    ' : '[unbekannt] ');
+      lines.push(`${String(c.count).padStart(4)} x  ${mark} ${c.key}`);
     }
-    if (result.categories.length) {
+
+    // Je Grund ein Rohbeispiel: mit nur einem einzigen bleibt die Form der
+    // uebrigen Faelle unsichtbar, und genau die braucht man zum Nachbessern.
+    for (const s of result.skipped) {
       lines.push('');
-      lines.push('--- Beispiel eines unerkannten Eintrags ---');
-      const unknown = result.categories.find((c) => !c.recognised);
-      lines.push(unknown ? JSON.stringify(unknown.sample, null, 2).slice(0, 1200) : '(alle erkannt)');
+      lines.push(`--- Rohbeispiel: ${s.reason} ---`);
+      lines.push(JSON.stringify(s.sample, null, 2).slice(0, 900));
     }
 
     report.hidden = false;

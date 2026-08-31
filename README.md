@@ -138,9 +138,24 @@ den Scanner-Einstellungen, beide Felder schreiben in denselben Eintrag. Bei leer
 ist der Bereich schon aufgeklappt, sonst stünden vier Null-Kacheln vor dem Einrichten.
 
 Der Bericht vor dem Übernehmen zeigt beides: welche Log-Typen zugeordnet wurden — mit Id und
-Torns Originaltitel, also nachprüfbar — und was aus welchem Grund liegen blieb. Passt eine
-Zuordnung nicht, ist das eine Zeile in `RULES` in `js/tornlog.js`. Findet sich kein einziger
-Typ, liest die App ungefiltert und der Bericht zeigt, wie Torn die Einträge nennt.
+Torns Originaltitel, also nachprüfbar — und was aus welchem Grund liegen blieb, **je Grund mit
+einem Rohbeispiel**. Ein einziges Beispiel reichte nicht: es zeigt nur die erste Form und
+verdeckt genau die Fälle, die man noch nachbessern muss.
+
+Kategorien tragen zwei getrennte Marken, weil es zwei verschiedene Fehler sind: `[Typ ok]`
+heisst, der Log-Typ ist bekannt, aber die Daten liessen sich nicht lesen; `[unbekannt]`
+heisst, schon der Typ passt zu keiner Regel. Passt etwas nicht, ist das eine Zeile in
+`RULES` in `js/tornlog.js`.
+
+**Beträge:** Bazaar und Item Market nennen `cost_each` und `cost_total`. Der Stückpreis wird
+aus `cost_each` genommen, nicht aus Summe durch Menge — dasselbe Ergebnis ohne
+Rundungsrisiko. Fehlt `cost_each`, bleibt die Division als Rückfall.
+
+**Trades werden nicht automatisch gebucht.** Über einen Trade lässt sich genauso einkaufen
+wie verkaufen, und aus dem Titel („Trade accepted") geht die Richtung nicht hervor. Ein als
+Verkauf gebuchter Einkauf wäre erfundener Gewinn, deshalb landen Trades vorerst im Bericht
+statt im Ledger — mit Rohbeispiel, aus dem sich die Richtungserkennung nachrüsten lässt.
+Bis dahin gehören sie über das Formular von Hand erfasst.
 
 Wiederholte Importe verdoppeln nichts: jeder Log-Eintrag trägt seine Referenz mit.
 
@@ -319,7 +334,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-134 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
+141 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
 Markup, Sortierung, Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung und Persistenz sowie
 die Key-, CSP-, Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
 

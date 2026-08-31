@@ -102,6 +102,111 @@ test('mapEntry rechnet die Summe auf den Stueckpreis herunter', () => {
   assert.equal(event.ref, 'abc123');
 });
 
+// Wortwoertlich aus einem echten Log-Eintrag.
+const REAL_BAZAAR_SELL = {
+  id: 'zGxCCTdTIB637jMzb8oa',
+  timestamp: 1788167064,
+  details: { id: 1226, title: 'Bazaar sell', category: 'Bazaars' },
+  data: {
+    italic: 1, color: 'green', buyer: 3814288,
+    items: [{ id: 196, uid: null, qty: 28 }],
+    cost_each: 6590, cost_total: 184520,
+  },
+};
+
+test('ein echter Bazaar-Verkauf wird vollstaendig gelesen', () => {
+  const [e] = normaliseLog({ log: [REAL_BAZAAR_SELL] });
+  const { event, skip } = mapEntry(e, new Map([[196, 'Drug Pack']]),
+    new Map([[1226, 'sell']]));
+  assert.equal(skip, undefined, `unerwartet uebersprungen: ${skip}`);
+  assert.equal(event.kind, 'sell');
+  assert.equal(event.itemId, 196);
+  assert.equal(event.itemName, 'Drug Pack');
+  assert.equal(event.quantity, 28);
+  assert.equal(event.unitPrice, 6590);
+  assert.equal(event.counterpartyId, 3814288);
+  assert.equal(event.ts, 1788167064000);
+});
+
+test('cost_each wird der Division vorgezogen', () => {
+  // Beides fuehrt hier zum selben Wert; bei krummen Summen nicht mehr.
+  const [e] = normaliseLog({ log: [REAL_BAZAAR_SELL] });
+  assert.equal(mapEntry(e, new Map(), new Map([[1226, 'sell']])).event.unitPrice, 6590);
+
+  const krumm = { ...REAL_BAZAAR_SELL, data: { ...REAL_BAZAAR_SELL.data, cost_each: 333, cost_total: 1000 } };
+  const [e2] = normaliseLog({ log: [krumm] });
+  assert.equal(mapEntry(e2, new Map(), new Map([[1226, 'sell']])).event.unitPrice, 333);
+});
+
+test('ohne cost_each bleibt die Division als Rueckfall', () => {
+  const ohne = {
+    ...REAL_BAZAAR_SELL,
+    data: { items: [{ id: 196, qty: 4 }], cost_total: 2000 },
+  };
+  const [e] = normaliseLog({ log: [ohne] });
+  assert.equal(mapEntry(e, new Map(), new Map([[1226, 'sell']])).event.unitPrice, 500);
+});
+
+test('Trades werden nicht blind als Verkauf gebucht', () => {
+  // Ueber einen Trade kann man genauso einkaufen. Als Verkauf gebucht waere
+  // ein Einkauf reiner Fantasiegewinn - lieber melden.
+  const trade = {
+    id: 't1', timestamp: 1788167064,
+    details: { id: 4431, title: 'Trade accepted', category: 'Trades' },
+    data: { trade_id: 55, user: 3814288 },
+  };
+  const [e] = normaliseLog({ log: [trade] });
+  const r = mapEntry(e);
+  assert.equal(r.event, undefined);
+  assert.match(r.skip, /Richtung/);
+});
+
+test('deriveLogTypes ordnet die echten Torn-Titel zu', () => {
+  const { byId } = deriveLogTypes([
+    { id: 1103, title: 'Item market buy (old)' },
+    { id: 1112, title: 'Item market buy' },
+    { id: 1113, title: 'Item market sell' },
+    { id: 1220, title: 'Bazaar buy (legacy)' },
+    { id: 1225, title: 'Bazaar buy' },
+    { id: 1226, title: 'Bazaar sell' },
+    { id: 4430, title: 'Trade completed' },
+    { id: 4431, title: 'Trade accepted' },
+    { id: 8150, title: 'Attack won' },
+  ]);
+  assert.equal(byId.get(1103), 'buy');
+  assert.equal(byId.get(1112), 'buy');
+  assert.equal(byId.get(1113), 'sell');
+  assert.equal(byId.get(1220), 'buy');
+  assert.equal(byId.get(1225), 'buy');
+  assert.equal(byId.get(1226), 'sell');
+  assert.equal(byId.get(4430), 'trade', 'Richtung offen, nicht geraten');
+  assert.equal(byId.get(4431), 'trade');
+  assert.equal(byId.has(8150), false);
+});
+
+test('inspect trennt "Typ bekannt" von "Daten gelesen"', () => {
+  // Genau dieser Unterschied fehlte im ersten Bericht: die Typen stimmten,
+  // die Betragsfelder hiessen anders.
+  const ohneBetrag = { ...REAL_BAZAAR_SELL, data: { items: [{ id: 196, qty: 28 }] } };
+  const report = inspect(normaliseLog({ log: [ohneBetrag] }), new Map(), new Map([[1226, 'sell']]));
+  const cat = report.categories[0];
+  assert.equal(cat.classified, true);
+  assert.equal(cat.imported, false);
+  assert.equal(report.skipped[0].reason, 'kein Betrag im Eintrag');
+});
+
+test('jeder Grund traegt ein Rohbeispiel mit', () => {
+  const entries = normaliseLog({ log: [
+    { ...REAL_BAZAAR_SELL, id: 'x', data: { items: [{ id: 1, qty: 1 }] } },
+    { id: 't', timestamp: 1, details: { id: 4431, title: 'Trade accepted', category: 'Trades' }, data: {} },
+  ] });
+  const report = inspect(entries, new Map(), new Map([[1226, 'sell'], [4431, 'trade']]));
+  assert.equal(report.skipped.length, 2);
+  for (const s of report.skipped) {
+    assert.ok(s.sample && s.sample.data, `kein Rohbeispiel fuer "${s.reason}"`);
+  }
+});
+
 test('mapEntry nimmt Itemnamen aus dem Katalog, wenn vorhanden', () => {
   assert.equal(mapEntry(entry(), new Map([[206, 'Xanax']])).event.itemName, 'Xanax');
   assert.equal(mapEntry(entry()).event.itemName, 'Item 206');
@@ -145,8 +250,8 @@ test('inspect trennt Erkanntes von Unerkanntem und zaehlt beides', () => {
   const report = inspect(entries);
   assert.equal(report.events.length, 2);
   assert.equal(report.skipped[0].count, 2);
-  assert.equal(report.categories.find((c) => c.key.startsWith('Attacking')).recognised, false);
-  assert.equal(report.categories.find((c) => c.key.startsWith('Bazaar')).recognised, true);
+  assert.equal(report.categories.find((c) => c.key.startsWith('Attacking')).imported, false);
+  assert.equal(report.categories.find((c) => c.key.startsWith('Bazaar')).imported, true);
 });
 
 test('inspect nutzt die Typ-Tabelle, wenn sie uebergeben wird', () => {
@@ -163,6 +268,9 @@ test('die Regeln greifen auf Titel, wie Torn sie schreibt', () => {
     ['Bazaar sell', 'sell'],
     ['Item market buy', 'buy'],
     ['Item market sell', 'sell'],
+    ['Item market buy (old)', 'buy'],
+    ['Bazaar buy (legacy)', 'buy'],
+    ['Trade completed', 'trade'],
     ['Attack won', null],
   ];
   for (const [title, expected] of titles) {
