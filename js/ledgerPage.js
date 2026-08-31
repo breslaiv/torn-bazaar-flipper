@@ -1,20 +1,21 @@
-import { loadSettings, saveSettings } from './storage.js?v=5';
+import { loadSettings, saveSettings } from './storage.js?v=6';
 import {
-  makeEvent, matchFifo, summarise, filterByPeriod, profitByItem,
-} from './ledger.js?v=5';
+  makeEvent, matchFifo, summarise, profitByItem,
+  PERIODS, periodRange, filterByRange,
+} from './ledger.js?v=6';
 import {
   loadEvents, saveEvents, addEvents, removeEvent, clearLedger,
   exportJson, parseImport, markExported, lastExport,
-} from './ledgerStore.js?v=5';
+} from './ledgerStore.js?v=6';
 import {
   fetchLog, fetchLogTypes, fetchLogCategories, deriveLogTypes, deriveCategories,
   inspect, TornLogError,
-} from './tornlog.js?v=5';
-import { reconstructTrades } from './tradelog.js?v=5';
-import { fetchMarketplace } from './weav3r.js?v=5';
-import { renderTable } from './table.js?v=5';
-import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=5';
-import { APP_VERSION } from './config.js?v=5';
+} from './tornlog.js?v=6';
+import { reconstructTrades } from './tradelog.js?v=6';
+import { fetchMarketplace } from './weav3r.js?v=6';
+import { renderTable } from './table.js?v=6';
+import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=6';
+import { APP_VERSION } from './config.js?v=6';
 
 let events = [];
 let pendingImport = [];
@@ -33,17 +34,18 @@ function tile(label, value, sub = '', cls = '') {
   </div>`;
 }
 
-function renderTiles(summary, days) {
-  const period = days ? `letzte ${days} Tage` : 'gesamter Zeitraum';
+function renderTiles(summary, range) {
+  const period = periodSubtitle(range);
   const profitCls = summary.realizedProfit >= 0 ? 'pos' : 'neg';
 
   const parts = [
     tile('Realisierter Profit', fmtMoney(summary.realizedProfit), period, profitCls),
     tile('Marge', summary.margin === null ? '—' : fmtPct(summary.margin),
-      `aus ${fmtUnits.format(summary.salesCount)} Verkäufen`),
+      `aus ${fmtUnits.format(summary.salesCount)} ${summary.salesCount === 1 ? 'Verkauf' : 'Verkäufen'}`),
     tile('Umsatz', fmtMoney(summary.proceeds), `Einstand ${fmtMoney(summary.realizedCost)}`),
+    // Bewusst ohne Zeitraum-Untertitel: der Bestand ignoriert die Auswahl.
     tile('Gebundenes Kapital', fmtMoney(summary.openCost),
-      `${fmtUnits.format(summary.openUnits)} Stück offen`),
+      `${fmtUnits.format(summary.openUnits)} Stück offen, gesamt`),
   ];
 
   if (summary.uncoveredUnits > 0) {
@@ -112,16 +114,46 @@ const ITEM_COLUMNS = [
 
 // ---------- Aufbau ----------
 
+function fillPeriods(selected) {
+  const select = document.getElementById('periodSelect');
+  select.innerHTML = PERIODS
+    .map((p) => `<option value="${p.key}">${escapeHtml(p.label)}</option>`)
+    .join('');
+  select.value = PERIODS.some((p) => p.key === selected) ? selected : 'all';
+}
+
 function currentPeriod() {
-  return Number(document.getElementById('periodSelect').value) || 0;
+  return document.getElementById('periodSelect').value || 'all';
+}
+
+/** "Heute · 31.08.26" oder "7 Tage · 25.08.–31.08.26" - was gezaehlt wurde. */
+function periodSubtitle({ from, to, label }) {
+  if (from === null) return 'gesamter Zeitraum';
+  // to ist ausschliesslich; angezeigt wird der letzte enthaltene Tag.
+  const last = to === null ? Date.now() : to - 1;
+  const first = fmtDate(from);
+  const lastDay = fmtDate(last);
+  if (first === lastDay) return `${label} · ${first}`;
+  // "25.08.–31.08.26" statt "25.08.26–31.08.26": das Jahr zweimal frisst auf
+  // dem Telefon eine Zeile.
+  const short = first.slice(-2) === lastDay.slice(-2) ? first.slice(0, -2) : first;
+  return `${label} · ${short}–${lastDay}`;
 }
 
 function render() {
-  const days = currentPeriod();
-  // Offene Positionen richten sich nicht nach dem Zeitraum: ein Kauf von vor
-  // 90 Tagen bindet immer noch Kapital.
+  const range = periodRange(currentPeriod());
+
+  // Zugeordnet wird immer ueber die ganze Historie und erst danach nach dem
+  // Verkaufsdatum zugeschnitten. Wuerde der Zeitraum schon die Ereignisse
+  // filtern, verloere ein Verkauf von heute den Einstand eines Kaufs von
+  // letzter Woche - der Profit saehe dann wie null aus.
   const all = matchFifo(events);
-  const scoped = matchFifo(filterByPeriod(events, days));
+  const scoped = {
+    sales: filterByRange(all.sales, range, (s) => s.sale.ts),
+    // Offene Positionen ignorieren den Zeitraum: ein alter Kauf bindet
+    // weiterhin Kapital.
+    openLots: [],
+  };
 
   const summary = { ...summarise(scoped), openCost: 0, openUnits: 0, openCount: 0 };
   const openSummary = summarise(all);
@@ -129,7 +161,7 @@ function render() {
   summary.openUnits = openSummary.openUnits;
   summary.openCount = openSummary.openCount;
 
-  renderTiles(summary, days);
+  renderTiles(summary, range);
   renderTable('openTable', OPEN_COLUMNS, all.openLots, { empty: 'Kein offener Bestand.' });
   renderTable('salesTable', SALE_COLUMNS, scoped.sales, {
     // Nur Kaeufe erfasst und nichts verkauft heisst nicht, dass der Ledger
@@ -139,7 +171,7 @@ function render() {
     empty: all.openLots.length
       ? 'Keine Verkäufe erfasst, aber Bestand vorhanden. Verkäufe über Trades kann der Import '
         + 'noch nicht zuordnen — bis dahin unten von Hand erfassen.'
-      : 'Keine Verkäufe im Zeitraum.',
+      : `Keine Verkäufe im Zeitraum (${periodSubtitle(range)}).`,
   });
   renderTable('byItemTable', ITEM_COLUMNS, profitByItem(scoped.sales), { empty: 'Noch nichts verkauft.' });
 
@@ -408,7 +440,12 @@ function applyPastedJson() {
 
 function init() {
   showVersion();
-  document.getElementById('periodSelect').addEventListener('change', render);
+  fillPeriods(loadSettings().ledgerPeriod);
+  document.getElementById('periodSelect').addEventListener('change', () => {
+    // Merken, sonst steht nach jedem Neuladen wieder "Gesamt" da.
+    saveSettings({ ...loadSettings(), ledgerPeriod: currentPeriod() });
+    render();
+  });
   document.getElementById('saveKeyBtn').addEventListener('click', saveKey);
   document.getElementById('clearKeyBtn').addEventListener('click', () => {
     document.getElementById('ledgerTornKey').value = '';

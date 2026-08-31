@@ -1,7 +1,7 @@
 // Bei jeder Aenderung hochzaehlen und danach tools/version-assets.py laufen
 // lassen: der Stempel haengt an jedem Import und macht eine neue Fassung zu
 // einer eigenen URL. Ohne ihn liefert der Browser tagelang den alten Stand.
-export const APP_VERSION = '5';
+export const APP_VERSION = '6';
 
 // Zentrale Konfiguration. Alles hier ist ueber die Einstellungen im UI
 // ueberschreibbar und landet dann in localStorage.
@@ -51,6 +51,9 @@ export const DEFAULTS = {
   minProfitPct: 5,
   maxBuyPrice: 0,              // 0 = kein Limit
   budget: 0,                   // 0 = kein Limit
+
+  // Ledger: zuletzt gewaehlter Zeitraum, siehe PERIODS in js/ledger.js.
+  ledgerPeriod: 'all',
 
   // Betrieb
   autoRefreshSec: 0,           // 0 = aus

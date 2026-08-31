@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  makeEvent, isValidEvent, dedupe, matchFifo, summarise, filterByPeriod, profitByItem,
+  makeEvent, isValidEvent, dedupe, matchFifo, summarise, profitByItem,
+  PERIODS, startOfDay, addDays, periodRange, filterByRange,
 } from '../js/ledger.js';
 
 const DAY = 86400000;
@@ -159,12 +160,95 @@ test('isValidEvent weist unbrauchbare Zeilen ab', () => {
     'ein $1-Bazaar-Fund darf 0 kosten');
 });
 
-test('filterByPeriod schneidet nach Tagen ab', () => {
-  const now = T0 + 30 * DAY;
-  const events = [buy(T0, 1, 1), buy(now - 3 * DAY, 1, 1), buy(now - 1 * DAY, 1, 1)];
-  assert.equal(filterByPeriod(events, 7, now).length, 2);
-  assert.equal(filterByPeriod(events, 60, now).length, 3);
-  assert.equal(filterByPeriod(events, 0, now).length, 3, '0 = kein Filter');
+// Die Erwartungen kommen aus startOfDay/addDays statt aus festen
+// Millisekunden: sonst haengt der Test an der Zeitzone des Rechners und an
+// der Sommerzeit, und ein Tag hat dann nicht immer 24 Stunden.
+const NOW = new Date(2026, 7, 31, 14, 30).getTime(); // 31.08.2026, 14:30 Ortszeit
+const HEUTE = startOfDay(NOW);
+
+test('periodRange schneidet an Kalendertagen, nicht an 24-Stunden-Fenstern', () => {
+  // Um 14:30 soll "Heute" den heutigen Tag meinen und nicht bis gestern
+  // 14:30 zurueckreichen.
+  assert.deepEqual(periodRange('today', NOW), { from: HEUTE, to: null, label: 'Heute' });
+  assert.deepEqual(periodRange('7d', NOW), { from: addDays(HEUTE, -6), to: null, label: '7 Tage' });
+  assert.deepEqual(periodRange('30d', NOW), { from: addDays(HEUTE, -29), to: null, label: '30 Tage' });
+});
+
+test('nur Gestern hat eine Obergrenze', () => {
+  // Ohne sie waere "Gestern" nicht von "seit gestern" zu unterscheiden.
+  const gestern = periodRange('yesterday', NOW);
+  assert.equal(gestern.from, addDays(HEUTE, -1));
+  assert.equal(gestern.to, HEUTE, 'heutige Vorgaenge gehoeren nicht dazu');
+  for (const key of ['all', 'today', '7d', '30d']) {
+    assert.equal(periodRange(key, NOW).to, null, `${key} braucht kein Ende`);
+  }
+});
+
+test('Gesamt und Unbekanntes filtern nicht', () => {
+  assert.deepEqual(periodRange('all', NOW), { from: null, to: null, label: 'Gesamt' });
+  assert.deepEqual(periodRange('quatsch', NOW), { from: null, to: null, label: 'Gesamt' });
+});
+
+test('jede Auswahl im UI hat einen Zeitraum', () => {
+  // PERIODS speist das Auswahlfeld; ein Eintrag ohne eigenen Fall waere still
+  // ein "Gesamt" mit falscher Beschriftung.
+  for (const p of PERIODS) {
+    assert.equal(periodRange(p.key, NOW).label, p.label, p.key);
+  }
+});
+
+test('filterByRange nimmt from einschliesslich und to ausschliesslich', () => {
+  const events = [
+    buy(addDays(HEUTE, -2) + 3600e3, 1, 1),  // vorgestern
+    buy(addDays(HEUTE, -1), 1, 1),           // gestern, Punkt Mitternacht
+    buy(HEUTE - 1, 1, 1),                    // gestern, letzte Millisekunde
+    buy(HEUTE, 1, 1),                        // heute, Punkt Mitternacht
+    buy(NOW, 1, 1),                          // heute, 14:30
+  ];
+  assert.equal(filterByRange(events, periodRange('today', NOW)).length, 2);
+  assert.equal(filterByRange(events, periodRange('yesterday', NOW)).length, 2,
+    'die Tagesgrenzen gehoeren je genau einem Tag');
+  assert.equal(filterByRange(events, periodRange('7d', NOW)).length, 5);
+  assert.equal(filterByRange(events, periodRange('all', NOW)).length, 5);
+});
+
+test('Gestern zeigt nicht, was heute passiert ist', () => {
+  // Der Fall, den der alte Filter gar nicht ausdruecken konnte.
+  const events = [buy(addDays(HEUTE, -1) + 3600e3, 1, 1), buy(NOW, 1, 1)];
+  const gestern = filterByRange(events, periodRange('yesterday', NOW));
+  assert.equal(gestern.length, 1);
+  assert.ok(gestern[0].ts < HEUTE);
+});
+
+test('ein Verkauf im Zeitraum behaelt den Einstand eines aelteren Kaufs', () => {
+  // Der Grund fuer den Zeitstempel-Parameter: erst zuordnen, dann zuschneiden.
+  const events = [buy(addDays(HEUTE, -25), 10, 100), sell(NOW, 10, 150)];
+
+  const falsch = matchFifo(filterByRange(events, periodRange('today', NOW)));
+  assert.equal(summarise(falsch).uncoveredUnits, 10,
+    'vorher gefiltert faellt der Kauf raus - so sah es vorher aus');
+
+  const richtig = matchFifo(events);
+  const sales = filterByRange(richtig.sales, periodRange('today', NOW), (s) => s.sale.ts);
+  assert.equal(sales.length, 1);
+  assert.equal(sales[0].profit, 500);
+  assert.equal(sales[0].uncoveredQuantity, 0);
+});
+
+test('filterByRange nimmt den Zeitstempel, den man ihm nennt', () => {
+  const rows = [{ sale: { ts: HEUTE - 1 } }, { sale: { ts: NOW } }];
+  const heute = filterByRange(rows, periodRange('today', NOW), (s) => s.sale.ts);
+  assert.deepEqual(heute, [rows[1]]);
+});
+
+test('addDays ueberspringt die Sommerzeit nicht', () => {
+  // Mit einem festen 86400000er-Raster faengt "vor 7 Tagen" in einer Zeitzone
+  // mit Sommerzeit eine Stunde zu frueh oder zu spaet an.
+  const nachUmstellung = new Date(2026, 9, 26, 12, 0).getTime(); // Montag nach der Umstellung in DE
+  const start = startOfDay(nachUmstellung);
+  assert.equal(startOfDay(addDays(start, -7)), addDays(start, -7),
+    'sieben Tage zurueck ist wieder Mitternacht');
+  assert.equal(new Date(addDays(start, -7)).getHours(), 0);
 });
 
 test('profitByItem summiert je Item und sortiert nach Profit', () => {

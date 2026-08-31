@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bazaar Flip">
 <meta name="format-detection" content="telephone=no">
-<meta name="app-build" content="5">
+<meta name="app-build" content="6">
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'none';
   script-src 'self';
@@ -39,19 +39,16 @@
 
   <div class="sortbar">
     <label class="field" for="periodSelect">Zeitraum</label>
-    <select id="periodSelect">
-      <option value="0">alles</option>
-      <option value="7">7 Tage</option>
-      <option value="30">30 Tage</option>
-      <option value="90">90 Tage</option>
-    </select>
+    <!-- Die Optionen baut ledgerPage.js aus PERIODS: eine Liste, die auch die
+         Rechnung benutzt, kann nicht von ihr abweichen. -->
+    <select id="periodSelect"></select>
   </div>
 
   <div class="tiles" id="tiles"></div>
 
   <div class="panel">
     <h2>Offene Positionen (<span id="openCount">0</span>)</h2>
-    <p class="hint">Gekauft, aber noch nicht verkauft — hier liegt dein Kapital.</p>
+    <p class="hint">Gekauft, aber noch nicht verkauft — hier liegt dein Kapital. Unabhängig vom Zeitraum: ein alter Kauf bindet es weiterhin.</p>
     <div class="table-wrap">
       <table id="openTable" class="cards"><thead></thead><tbody></tbody></table>
     </div>
@@ -160,6 +157,6 @@
   <span id="status"></span>
 </div>
 
-<script type="module" src="js/ledgerPage.js?v=5"></script>
+<script type="module" src="js/ledgerPage.js?v=6"></script>
 </body>
 </html>

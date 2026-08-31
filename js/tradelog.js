@@ -20,7 +20,7 @@
 // und deshalb sind die Muster verankert: "trade items add" darf nicht auch
 // auf "trade items add other user" passen.
 
-import { makeEvent, isValidEvent } from './ledger.js?v=5';
+import { makeEvent, isValidEvent } from './ledger.js?v=6';
 
 const ROLES = [
   ['completed', /^trade completed$/i],

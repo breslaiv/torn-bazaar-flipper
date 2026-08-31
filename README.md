@@ -108,8 +108,18 @@ tatsächlich losschlägt, und bleibt nachvollziehbar, wenn man eine Zeile im Nac
 Daraus fallen zwei Listen an:
 
 - **Offene Positionen** — gekauft, noch nicht verkauft. Zeigt, wo dein Kapital liegt. Sie
-  ignorieren den Zeitraumfilter: ein Kauf von vor 90 Tagen bindet immer noch Geld.
+  ignorieren den Zeitraum: ein Kauf von vor 90 Tagen bindet immer noch Geld.
 - **Abgeschlossene Verkäufe** — je Verkauf Einstand, Erlös, Profit und Marge.
+
+**Zeitraum: Gesamt, Heute, Gestern, 7 Tage, 30 Tage.** Gerechnet wird in Kalendertagen
+lokaler Zeit, nicht in rollenden 24-Stunden-Fenstern — *Heute* meint um 9 Uhr morgens den
+heutigen Tag und nicht die Zeit ab gestern 9 Uhr. *Gestern* ist der einzige Zeitraum mit
+Obergrenze; ohne sie wäre er von „seit gestern" nicht zu unterscheiden. Die Auswahl bleibt
+über einen Neuladen hinweg erhalten.
+
+Zugeordnet wird dabei immer über die **ganze** Historie, und erst das Ergebnis wird nach
+dem Verkaufsdatum zugeschnitten. Andernfalls verlöre ein Verkauf von heute den Einstand
+eines Kaufs von letzter Woche und stünde als Verkauf *ohne Einstand* mit Profit null da.
 
 **Verkäufe ohne Einstand fließen nicht in den Profit.** Wer Ware verkauft, die vor dem
 ersten Import gekauft wurde, hätte sonst reinen Fantasiegewinn in der Bilanz. Diese Menge

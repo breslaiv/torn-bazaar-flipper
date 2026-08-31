@@ -153,10 +153,73 @@ export function summarise({ sales, openLots }) {
   };
 }
 
-export function filterByPeriod(events, days, now = Date.now()) {
-  if (!days) return events;
-  const cutoff = now - days * 86400000;
-  return events.filter((e) => e.ts >= cutoff);
+/**
+ * Zeitraeume als Kalendertage in lokaler Zeit, nicht als rollende
+ * 24-Stunden-Fenster. "Heute" soll um 9 Uhr morgens den heutigen Tag meinen
+ * und nicht bis gestern 9 Uhr zurueckreichen; "Gestern" braucht ausserdem ein
+ * Ende, sonst waere es von "seit gestern" nicht zu unterscheiden.
+ */
+export const PERIODS = [
+  { key: 'all', label: 'Gesamt' },
+  { key: 'today', label: 'Heute' },
+  { key: 'yesterday', label: 'Gestern' },
+  { key: '7d', label: '7 Tage' },
+  { key: '30d', label: '30 Tage' },
+];
+
+/** Beginn des Kalendertags in lokaler Zeit. */
+export function startOfDay(ts) {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** Verschiebt um n Kalendertage - ueber Sommerzeitwechsel hinweg korrekt. */
+export function addDays(ts, n) {
+  const d = new Date(ts);
+  d.setDate(d.getDate() + n);
+  return d.getTime();
+}
+
+/**
+ * @returns {{from: number|null, to: number|null, label: string}}
+ *   from einschliesslich, to ausschliesslich; null heisst unbegrenzt.
+ */
+export function periodRange(key, now = Date.now()) {
+  const today = startOfDay(now);
+  const label = PERIODS.find((p) => p.key === key)?.label ?? 'Gesamt';
+
+  switch (key) {
+    case 'today':
+      return { from: today, to: null, label };
+    case 'yesterday':
+      // Der einzige Zeitraum mit Obergrenze: heutige Vorgaenge gehoeren nicht dazu.
+      return { from: addDays(today, -1), to: today, label };
+    case '7d':
+      // Sieben Kalendertage einschliesslich heute.
+      return { from: addDays(today, -6), to: null, label };
+    case '30d':
+      return { from: addDays(today, -29), to: null, label };
+    default:
+      return { from: null, to: null, label };
+  }
+}
+
+/**
+ * Schneidet eine Liste auf einen Zeitraum zu.
+ *
+ * Der Zeitstempel ist frei waehlbar, weil nicht immer Ereignisse gefiltert
+ * werden: fuer eine Profitrechnung muss FIFO ueber die ganze Historie laufen
+ * und erst das Ergebnis nach dem Verkaufsdatum zugeschnitten werden. Filtert
+ * man vorher die Ereignisse, verliert ein Verkauf im Zeitraum den Einstand
+ * eines aelteren Kaufs und erscheint faelschlich als "ohne Einstand".
+ */
+export function filterByRange(items, { from, to } = {}, ts = (x) => x.ts) {
+  return items.filter((x) => {
+    const t = ts(x);
+    return (from === null || from === undefined || t >= from)
+      && (to === null || to === undefined || t < to);
+  });
 }
 
 /** Realisierter Profit gruppiert nach Item, bester zuerst. */

@@ -2,8 +2,8 @@
 // weav3r Item-Namen und Marktpreise bereits mitliefert. Der Key erlaubt nur
 // die Gegenprobe gegen den echten Item-Market-Tiefstpreis.
 
-import { TORN_API_BASE, TORN_RATE_LIMIT } from './config.js?v=5';
-import { RateLimiter } from './ratelimit.js?v=5';
+import { TORN_API_BASE, TORN_RATE_LIMIT } from './config.js?v=6';
+import { RateLimiter } from './ratelimit.js?v=6';
 
 export const limiter = new RateLimiter(TORN_RATE_LIMIT, 'torn');
 
