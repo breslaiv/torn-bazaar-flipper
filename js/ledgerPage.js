@@ -6,7 +6,7 @@ import {
   loadEvents, saveEvents, addEvents, removeEvent, clearLedger,
   exportJson, parseImport, markExported, lastExport,
 } from './ledgerStore.js';
-import { fetchLog, inspect, TornLogError } from './tornlog.js';
+import { fetchLog, fetchLogTypes, deriveLogTypes, inspect, TornLogError } from './tornlog.js';
 import { fetchMarketplace } from './weav3r.js';
 import { renderTable } from './table.js';
 import { fmtMoney, fmtPct, setStatus, escapeHtml } from './ui.js';
@@ -174,14 +174,29 @@ async function importFromLog() {
       console.warn('Itemnamen nicht geladen:', err.message);
     }
 
+    // Torn nennt seine Log-Typen selbst. Erst die Liste holen (Public reicht),
+    // daraus die Kauf- und Verkaufstypen ableiten, dann serverseitig danach
+    // filtern - das erspart es, irrelevante Kategorien durchzublaettern.
+    setStatus('Lade Torns Log-Typen…');
+    const { ids, byId, matched } = deriveLogTypes(await fetchLogTypes(settings.tornKey));
+
+    setStatus('Lese Torn-Log…');
     const maxEntries = Number(document.getElementById('logMax').value) || 300;
-    const entries = await fetchLog(settings.tornKey, { maxEntries });
-    const result = inspect(entries, itemNames);
+    const entries = await fetchLog(settings.tornKey, { maxEntries, logIds: ids });
+    const result = inspect(entries, itemNames, byId);
     pendingImport = result.events;
     backfillNames(itemNames);
 
     const lines = [];
     lines.push(`${entries.length} Log-Einträge gelesen, ${result.events.length} als Kauf oder Verkauf erkannt.`);
+    lines.push('');
+    lines.push('--- Zugeordnete Log-Typen (von Torn benannt) ---');
+    if (matched.length) {
+      for (const m of matched) lines.push(`  ${String(m.id).padStart(6)}  ${m.kind === 'buy' ? 'Kauf   ' : 'Verkauf'}  ${m.title}`);
+    } else {
+      lines.push('  keiner — deshalb wurde ungefiltert gelesen. Die Kategorien unten zeigen,');
+      lines.push('  wie Torn die Einträge nennt; danach lassen sich die Regeln ergänzen.');
+    }
     lines.push('');
 
     if (result.skipped.length) {

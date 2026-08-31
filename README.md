@@ -117,22 +117,32 @@ wird stattdessen als eigene Kachel *Ohne Einstand* ausgewiesen.
 
 ### Import aus dem Torn-Log
 
-Liest `/user/log` und legt Käufe und Verkäufe an. Braucht einen Key mit mindestens
-**Limited Access** — ein Public-Only-Key reicht dafür nicht, und Torn antwortet dann mit
-Fehler 16, was die App im Klartext meldet. Wiederholte Importe verdoppeln nichts: jeder
-Log-Eintrag trägt seine Referenz mit.
+Gebaut gegen Torns offizielle OpenAPI-Spec (6.13.1). Zwei Dinge daraus bestimmen den Ablauf.
 
-**Die Zuordnung ist nicht verifiziert.** Die genauen Titel und Datenfelder der Log-Einträge
-liessen sich ohne Key und ohne Zugriff auf `api.torn.com` nicht nachschlagen. Deshalb:
+**`/user/log` verlangt einen Key mit Full Access.** So steht es in der Spec — Limited reicht
+nicht. Das ist der weiteste Zugriff, den Torn kennt: ein solcher Key liest auch Geld,
+Inventar und Nachrichten. Das steht im Widerspruch zur Public-Only-Empfehlung weiter oben,
+und der Widerspruch lässt sich nicht wegdiskutieren, nur handhaben: **leg für den Ledger
+einen eigenen Key an**, statt den Scanner-Key aufzuwerten, und lösch ihn, wenn du den Import
+nicht mehr brauchst. Fehlt der Zugriff, antwortet Torn mit Fehler 16, den die App im
+Klartext meldet.
 
-1. Die Zuordnung steckt in `RULES` in `js/tornlog.js` — einer kurzen Tabelle aus
-   Stichwörtern auf Kategorie und Titel. Stimmt ein Titel nicht, ist das eine Zeile.
-2. Der Import zeigt **vor** dem Übernehmen einen Bericht: wie viele Einträge erkannt wurden,
-   was aus welchem Grund liegen blieb, welche Kategorien dein Log überhaupt enthält, und ein
-   Beispiel eines unerkannten Eintrags im Rohformat.
+**Geraten wird nichts.** `/torn/logtypes` liefert alle Log-Typen mit Id und Titel und
+braucht nur einen Public-Key. Der Import holt diese Liste zuerst, bildet die Titel per
+Stichwort auf Kauf und Verkauf ab und lässt `/user/log` dann **serverseitig** danach filtern
+(`log=5360,5361,…`). Damit blättert der Client keine irrelevanten Kategorien durch, und die
+Zuordnung stammt aus Torns eigener Benennung statt aus einer Vermutung.
 
-Ein Import, der nichts erkennt, ist damit kein Rätsel, sondern ein Bericht — aus dem sich
-die Regeln vervollständigen lassen. Schick den Bericht her, dann sitzt die Zuordnung.
+Der Bericht vor dem Übernehmen zeigt beides: welche Log-Typen zugeordnet wurden — mit Id und
+Torns Originaltitel, also nachprüfbar — und was aus welchem Grund liegen blieb. Passt eine
+Zuordnung nicht, ist das eine Zeile in `RULES` in `js/tornlog.js`. Findet sich kein einziger
+Typ, liest die App ungefiltert und der Bericht zeigt, wie Torn die Einträge nennt.
+
+Wiederholte Importe verdoppeln nichts: jeder Log-Eintrag trägt seine Referenz mit.
+
+Die Feldnamen *innerhalb* von `data` und `params` lässt die Spec bewusst offen
+(„Dynamic key-value pairs"), deshalb bleibt die Extraktion von Item, Menge und Betrag
+defensiv und meldet, was sie nicht lesen konnte.
 
 Trades mit **mehreren Items** werden bewusst nicht übernommen: ohne Einzelpreise liesse sich
 die Summe nicht fair aufteilen. Sie erscheinen im Bericht und gehören von Hand erfasst.
@@ -185,8 +195,10 @@ Alle Werte aus der API werden vor dem Rendern escaped, Spieler-IDs in Links lauf
 
 Was du selbst tun solltest:
 
-- **Nimm einen *Public Only*-Key.** Er reicht für alles, was die App tut. Selbst wenn er
+- **Nimm einen *Public Only*-Key.** Er reicht für alles, was der Scanner tut. Selbst wenn er
   abhandenkommt, gibt er nur öffentliche Daten preis — kein Geld, kein Inventar, keine Mails.
+  Einzige Ausnahme ist der Log-Import des Ledgers, der laut Torns Spec Full Access verlangt;
+  dafür lieber einen zweiten, jederzeit löschbaren Key als eine Aufwertung des ersten.
 - **Key auf einem fremden Rechner?** Danach *Einstellungen zurücksetzen* klicken, das leert
   den `localStorage`.
 - **Verdacht auf Kompromittierung:** Key unter
@@ -287,7 +299,7 @@ js/app.js           Verdrahtung, Fortschritt
 ledger.html         Buchführung über Käufe, Verkäufe und Profit
 js/ledger.js        Ereignismodell, FIFO-Zuordnung, Kennzahlen
 js/ledgerStore.js   localStorage, Export und Import
-js/tornlog.js       Import aus /user/log samt Bericht über Unerkanntes
+js/tornlog.js       Log-Typen von Torn, serverseitig gefilterter Import, Bericht
 js/table.js         Tabellenbau mit data-label für die Kartenansicht
 js/ledgerPage.js    Verdrahtung der Ledger-Seite
 tools/make-icon.py  erzeugt icon-180.png fuer den iOS-Home-Screen
@@ -303,7 +315,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-130 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
+134 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
 Markup, Sortierung, Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung und Persistenz sowie
 die Key-, CSP-, Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
 

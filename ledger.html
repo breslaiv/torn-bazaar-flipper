@@ -72,9 +72,11 @@
   <details class="panel">
     <summary>Aus dem Torn-Log importieren</summary>
     <p class="hint">
-      Liest dein persönliches Torn-Log und legt Käufe und Verkäufe an. Braucht einen Key
-      mit mindestens <strong>Limited Access</strong> — ein Public-Only-Key reicht dafür
-      nicht. Der Key steht in den Scanner-Einstellungen und bleibt im Browser.
+      Liest dein persönliches Torn-Log und legt Käufe und Verkäufe an.
+      <strong>Torn verlangt dafür einen Key mit Full Access</strong> — laut offizieller
+      API-Spec, Limited reicht nicht. Das ist der weiteste Zugriff, den Torn kennt: ein
+      solcher Key liest auch Geld, Inventar und Nachrichten. Leg dafür besser einen
+      eigenen Key an, den du jederzeit löschen kannst. Er bleibt im Browser.
     </p>
     <div class="grid">
       <label class="field">Einträge lesen (max.)

@@ -1,16 +1,17 @@
-// Import aus dem persoenlichen Torn-Log (/user/log).
+// Import aus dem persoenlichen Torn-Log (/user/log), gebaut gegen die
+// offizielle OpenAPI-Spec (Torn API 6.13.1).
 //
-// WICHTIG: Die genauen Titel und Datenfelder der Log-Eintraege sind hier nicht
-// verifiziert - sie liessen sich ohne Key und ohne Zugriff auf api.torn.com
-// nicht nachschlagen. Deshalb zwei Vorkehrungen:
+// Zwei Dinge aus der Spec bestimmen den Aufbau:
 //
-//   1. Die Zuordnung steckt in RULES, einer kurzen Tabelle aus Stichwoertern.
-//      Stimmt ein Titel nicht, ist das eine Zeile Aenderung.
-//   2. inspect() meldet jede unbekannte Kategorie samt Anzahl und Beispiel
-//      zurueck, statt sie stillschweigend zu verwerfen. Damit laesst sich die
-//      Tabelle aus echten Daten vervollstaendigen.
+//   1. /user/log verlangt einen Key mit FULL ACCESS. Das ist der weiteste
+//      Zugriff, den Torn kennt - siehe README.
+//   2. /torn/logtypes liefert alle Log-Typen mit Id und Titel und braucht nur
+//      einen Public-Key. Damit muss nichts geraten werden: die Typen werden
+//      einmal geholt, per Stichwort auf Kauf/Verkauf abgebildet, und
+//      /user/log filtert dann serverseitig ueber log=<ids>.
 //
-// Ein Import, der nichts erkennt, ist damit kein Raetsel, sondern ein Bericht.
+// Die Feldnamen innerhalb von data/params sind in der Spec bewusst offen
+// ("Dynamic key-value pairs"), deshalb bleibt die Extraktion defensiv.
 
 import { TORN_API_BASE, TORN_RATE_LIMIT } from './config.js';
 import { RateLimiter } from './ratelimit.js';
@@ -27,20 +28,19 @@ export class TornLogError extends Error {
 }
 
 /**
- * Stichwortregeln auf Kategorie und Titel eines Log-Eintrags.
+ * Stichwoerter auf den Titel eines Log-Typs. Die Titel kommen von Torn selbst
+ * (/torn/logtypes), es wird also nur zugeordnet, nicht erfunden.
  * Die erste passende Regel gewinnt.
  */
 export const RULES = [
-  { kind: 'buy', category: /bazaar/i, title: /(buy|bought|purchas)/i },
-  { kind: 'buy', category: /item market/i, title: /(buy|bought|purchas)/i },
-  { kind: 'sell', category: /bazaar/i, title: /(sold|sell)/i },
-  { kind: 'sell', category: /item market/i, title: /(sold|sell)/i },
-  { kind: 'sell', category: /trad/i, title: /(accept|complet|receiv)/i },
+  { kind: 'buy', title: /\b(bazaar|item market|itemmarket)\b.*\b(buy|bought|purchas)/i },
+  { kind: 'sell', title: /\b(bazaar|item market|itemmarket)\b.*\b(sell|sold)/i },
+  { kind: 'buy', title: /^(buy|bought|purchas)/i },
+  { kind: 'sell', title: /^(sell|sold)/i },
+  { kind: 'sell', title: /\btrade\b.*\b(accept|complet|receiv)/i },
 ];
 
 const ITEM_ID_KEYS = ['item', 'item_id', 'itemId', 'itemID'];
-// In einem items-Array heisst das Feld schlicht id; auf der obersten Ebene
-// waere id dagegen die Kennung des Log-Eintrags, nicht die des Items.
 const ITEM_ID_KEYS_IN_ARRAY = ['id', ...ITEM_ID_KEYS];
 const QTY_KEYS = ['quantity', 'qty', 'amount', 'items_amount'];
 const MONEY_KEYS = ['cost', 'price', 'money', 'value', 'total', 'total_cost', 'worth'];
@@ -60,39 +60,76 @@ function num(v) {
   return undefined;
 }
 
-/** v1 lieferte ein Objekt {hash: eintrag}, v2 ein Array. Beides auf eine Liste bringen. */
+/**
+ * UserLog laut Spec: { id, timestamp, details: { id, title, category }, data, params }.
+ * Titel und Kategorie stecken unter details, nicht auf der obersten Ebene.
+ */
 export function normaliseLog(payload) {
   if (!payload || typeof payload !== 'object') return [];
   const raw = 'log' in payload ? payload.log : payload;
   if (!raw || typeof raw !== 'object') return [];
+
   const list = Array.isArray(raw)
     ? raw
     : Object.entries(raw).map(([id, v]) => (v && typeof v === 'object' ? { id, ...v } : null));
+
   return list
     .filter((e) => e && typeof e === 'object')
-    .map((e) => ({
-      id: String(e.id ?? e.log ?? `${e.timestamp}-${e.title}`),
-      ts: (Number(e.timestamp) || 0) * 1000,
-      category: String(e.category ?? ''),
-      title: String(e.title ?? ''),
-      data: e.data ?? e.params ?? {},
-    }));
+    .map((e) => {
+      const details = e.details && typeof e.details === 'object' ? e.details : {};
+      return {
+        id: String(e.id ?? `${e.timestamp}-${details.id ?? ''}`),
+        ts: (Number(e.timestamp) || 0) * 1000,
+        typeId: num(details.id ?? e.log),
+        category: String(details.category ?? e.category ?? ''),
+        title: String(details.title ?? e.title ?? ''),
+        // Beide Objekte sind laut Spec frei belegt; data gewinnt bei Kollision.
+        data: { ...(e.params || {}), ...(e.data || {}) },
+      };
+    });
 }
 
-export function classify(entry) {
-  for (const rule of RULES) {
-    if (rule.category.test(entry.category) && rule.title.test(entry.title)) return rule.kind;
+/** Normalisiert die Antwort von /torn/logtypes. */
+export function normaliseLogTypes(payload) {
+  const raw = payload?.logtypes ?? payload;
+  const list = Array.isArray(raw)
+    ? raw
+    : Object.entries(raw || {}).map(([id, title]) => ({ id: Number(id), title }));
+  return list
+    .map((t) => ({ id: num(t?.id), title: String(t?.title ?? '') }))
+    .filter((t) => Number.isFinite(t.id) && t.title);
+}
+
+/**
+ * Bildet Torns eigene Log-Typen auf Kauf/Verkauf ab.
+ * @returns {{ids: number[], byId: Map<number,string>, matched: Array}}
+ */
+export function deriveLogTypes(logTypes) {
+  const byId = new Map();
+  const matched = [];
+  for (const type of logTypes) {
+    const rule = RULES.find((r) => r.title.test(type.title));
+    if (!rule) continue;
+    byId.set(type.id, rule.kind);
+    matched.push({ ...type, kind: rule.kind });
   }
-  return null;
+  return { ids: [...byId.keys()], byId, matched };
+}
+
+/** Kauf oder Verkauf - ueber die Typ-Id, ersatzweise ueber den Titel. */
+export function classify(entry, byId = new Map()) {
+  if (entry.typeId !== undefined && byId.has(entry.typeId)) return byId.get(entry.typeId);
+  const rule = RULES.find((r) => r.title.test(`${entry.category} ${entry.title}`.trim()));
+  return rule ? rule.kind : null;
 }
 
 /**
  * Macht aus einem Log-Eintrag ein Ledger-Ereignis.
  * @returns {{event: object}|{skip: string}} - skip nennt den Grund.
  */
-export function mapEntry(entry, itemNames = new Map()) {
-  const kind = classify(entry);
-  if (!kind) return { skip: 'unbekannte Kategorie' };
+export function mapEntry(entry, itemNames = new Map(), byId = new Map()) {
+  const kind = classify(entry, byId);
+  if (!kind) return { skip: 'unbekannter Log-Typ' };
 
   const data = entry.data || {};
 
@@ -131,9 +168,8 @@ export function mapEntry(entry, itemNames = new Map()) {
 
 /**
  * Bericht ueber einen Log-Abzug: was liess sich zuordnen, was nicht und warum.
- * Genau das braucht man, um RULES aus echten Daten zu vervollstaendigen.
  */
-export function inspect(entries, itemNames = new Map()) {
+export function inspect(entries, itemNames = new Map(), byId = new Map()) {
   const events = [];
   const skipped = new Map();
   const categories = new Map();
@@ -144,7 +180,7 @@ export function inspect(entries, itemNames = new Map()) {
     cat.count += 1;
     categories.set(key, cat);
 
-    const result = mapEntry(entry, itemNames);
+    const result = mapEntry(entry, itemNames, byId);
     if (result.event) {
       cat.recognised = true;
       events.push(result.event);
@@ -163,49 +199,69 @@ export function inspect(entries, itemNames = new Map()) {
   };
 }
 
-/** Holt Log-Seiten, neueste zuerst, bis maxEntries erreicht sind. */
-export async function fetchLog(key, { maxEntries = 300, from = null, signal } = {}) {
+async function tornGet(url, signal) {
+  await limiter.acquire();
+  let res;
+  try {
+    res = await fetch(url, { headers: { Accept: 'application/json' }, signal });
+  } catch (err) {
+    if (err.name === 'AbortError') throw err;
+    throw new TornLogError(0, `api.torn.com ist nicht erreichbar (${err.message}).`);
+  }
+  if (!res.ok) throw new TornLogError(res.status, `Torn API HTTP ${res.status}`);
+
+  const payload = await res.json();
+  if (payload?.error) {
+    const code = payload.error.code;
+    const hints = {
+      2: ' Der Key ist unbekannt oder falsch geschrieben.',
+      15: ' Torn stellt den Log gerade nicht bereit.',
+      16: ' /user/log verlangt einen Key mit Full Access; Public oder Limited reichen nicht.',
+      28: ' Eine der angefragten Log-Ids kennt Torn nicht.',
+    };
+    throw new TornLogError(code, `${payload.error.error || 'Torn-Fehler'}.${hints[code] || ''}`);
+  }
+  return payload;
+}
+
+/** Alle Log-Typen samt Id und Titel. Braucht nur einen Public-Key. */
+export async function fetchLogTypes(key, { signal } = {}) {
+  const url = new URL(`${TORN_API_BASE}/torn/logtypes`);
+  url.searchParams.set('key', key);
+  return normaliseLogTypes(await tornGet(url, signal));
+}
+
+/**
+ * Holt Log-Eintraege, neueste zuerst.
+ * Mit logIds filtert Torn serverseitig; ohne sie kommt alles, damit der
+ * Bericht zeigen kann, was das Log ueberhaupt enthaelt.
+ */
+export async function fetchLog(key, { maxEntries = 300, logIds = [], signal } = {}) {
   const collected = [];
-  let to = null;
+  let next = null;
 
   while (collected.length < maxEntries) {
-    await limiter.acquire();
-    const url = new URL(`${TORN_API_BASE}/user/log`);
-    url.searchParams.set('key', key);
-    url.searchParams.set('limit', '100');
-    if (from) url.searchParams.set('from', String(Math.floor(from / 1000)));
-    if (to) url.searchParams.set('to', String(Math.floor(to / 1000)));
-
-    let res;
-    try {
-      res = await fetch(url, { headers: { Accept: 'application/json' }, signal });
-    } catch (err) {
-      if (err.name === 'AbortError') throw err;
-      throw new TornLogError(0, `api.torn.com ist nicht erreichbar (${err.message}).`);
-    }
-    if (!res.ok) throw new TornLogError(res.status, `Torn API HTTP ${res.status}`);
-
-    const payload = await res.json();
-    if (payload?.error) {
-      const code = payload.error.code;
-      // 16 ist der haeufige Fall: der Key darf den Log nicht lesen.
-      const hint = code === 16
-        ? ' Der Log braucht einen Key mit mindestens Limited Access; ein Public-Only-Key reicht nicht.'
-        : '';
-      throw new TornLogError(code, `${payload.error.error || 'Torn-Fehler'}.${hint}`);
+    let url;
+    if (next) {
+      url = new URL(next);
+      // Der Link von Torn traegt den Key nicht mit.
+      if (!url.searchParams.get('key')) url.searchParams.set('key', key);
+    } else {
+      url = new URL(`${TORN_API_BASE}/user/log`);
+      url.searchParams.set('key', key);
+      url.searchParams.set('limit', '100');
+      if (logIds.length) url.searchParams.set('log', logIds.join(','));
     }
 
+    const payload = await tornGet(url, signal);
     const page = normaliseLog(payload);
     if (!page.length) break;
     collected.push(...page);
 
-    const oldest = Math.min(...page.map((e) => e.ts));
-    if (!Number.isFinite(oldest) || oldest <= 0) break;
-    // Eine Sekunde vor dem aeltesten Eintrag weitermachen.
-    const next = oldest - 1000;
-    if (to !== null && next >= to) break;
-    to = next;
-    if (page.length < 100) break;
+    // Die Spec liefert fertige Folgelinks; nanostamp loest den Fall, dass
+    // mehr als 100 Eintraege dieselbe Sekunde tragen.
+    next = payload?._metadata?.links?.next || null;
+    if (!next || page.length < 100) break;
   }
 
   return collected.slice(0, maxEntries);
