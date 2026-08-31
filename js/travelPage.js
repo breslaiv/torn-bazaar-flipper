@@ -424,23 +424,24 @@ function init() {
 
   document.getElementById('yataUrl').value = s.yataUrl || YATA_URL;
   document.getElementById('saveSourceBtn').addEventListener('click', () => {
-    const url = document.getElementById('yataUrl').value.trim() || YATA_URL;
-    const key = document.getElementById('yataKey').value.trim();
+    const eingabe = document.getElementById('yataUrl').value.trim() || YATA_URL;
     const saveMsg = document.getElementById('sourceSaveMsg');
+    let url;
     try {
       // Vor dem Speichern pruefen: eine Adresse, die die CSP ohnehin blockt,
       // waere spaeter nur ein rätselhafter Netzwerkfehler.
-      travelUrl({ yataUrl: url, yataKey: key });
+      url = String(travelUrl({ yataUrl: eingabe }));
     } catch (err) {
       saveMsg.textContent = err.message;
       return;
     }
-    saveSettings({ ...settings(), yataUrl: url, yataKey: key });
-    document.getElementById('yataKey').value = '';
-    saveMsg.textContent = key ? 'Adresse und Key gespeichert.' : 'Adresse gespeichert.';
+    saveSettings({ ...settings(), yataUrl: url });
+    document.getElementById('yataUrl').value = url;
+    saveMsg.textContent = url === eingabe
+      ? 'Adresse gespeichert.'
+      : 'Gespeichert, ohne Parameter — sonst am Zwischenspeicher von YATA vorbei.';
   });
   document.getElementById('openSourceBtn').addEventListener('click', () => {
-    // Ohne Key: der gehoert nicht in einen Tab, den man mit jemandem teilt.
     window.open(String(travelUrl({ yataUrl: settings().yataUrl })), '_blank', 'noopener');
   });
   document.getElementById('applyPasteBtn').addEventListener('click', applyPasted);

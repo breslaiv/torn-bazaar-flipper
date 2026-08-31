@@ -484,12 +484,30 @@ Zwei Stellschrauben dafür, unter *Quelle*:
 - **Die Adresse ist einstellbar.** Ändert YATA die Route, wird sie hier korrigiert statt per
   Deploy. Der Host bleibt auf `yata.yt` festgenagelt — alles andere blockt die CSP ohnehin,
   und ein früh benannter Fehler ist besser als ein rätselhafter Netzwerkfehler später.
-  Ein Key, falls verlangt, wandert als Query-Parameter mit (ein Header löste einen
-  CORS-Preflight aus).
 - **Antwort einfügen.** Adresse in einem normalen Tab öffnen, JSON kopieren, einfügen. Es läuft
   durch denselben Parser wie ein Abruf und legt dieselbe Messung an — der Weg funktioniert
   also auch dann, wenn der Browser den direkten Zugriff nie erlaubt. Wird kein Land erkannt,
   nennt die Meldung die gefundenen Schlüssel; daran lässt sich die tatsächliche Form ablesen.
+
+**Die Antwort ist gecacht, bis jemand neue Vorräte einliefert**, und YATA weist darauf hin,
+genau `/api/v1/travel/export/` aufzurufen und keine Variante davon. Deshalb entfernt die App
+Query-Parameter aus der eingestellten Adresse — ein angehängter Parameter, auch ein harmloser
+Cache-Buster, liefe an der zwischengespeicherten Antwort vorbei. Ein Key ist für diese Route
+nicht vorgesehen.
+
+Das hat eine Folge für die Vorhersage: derselbe Abzug zweimal gelesen ist **eine** Messung,
+nicht zwei. Die App erkennt das am Zeitstempel — `update` je Land, sonst der `timestamp` der
+Nutzlast. Ohne diese Unterscheidung entstünde aus lauter gleichen Mengen ein Abverkauf von
+null, und die Vorhersage sähe zuversichtlich aus, ohne dass jemand hingeschaut hätte.
+
+Die dokumentierte Form:
+
+```
+{ "stocks": { "mex": { "update": <ts>,
+                       "stocks": [ { "id": …, "name": …, "quantity": …, "cost": … }, … ] },
+              "cay": { … } },
+  "timestamp": <ts> }
+```
 
 ### Vorhersage
 
@@ -588,7 +606,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-269 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
+272 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
 Parallelität und Abbruch, Zeitstempel-Deutung, Scan-Ablauf, Markup, Sortierung,
 Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status, Bestandsbewertung, Flugplanung, Vorratsvorhersage und Persistenz sowie die Key-, CSP-,
 Workflow- und Mobile-Prüfungen aus den Abschnitten oben.

@@ -108,12 +108,20 @@ test('ohne Angabe gilt die Vorgabe', () => {
   assert.equal(String(travelUrl({ yataUrl: '  ' })), YATA_URL);
 });
 
-test('ein Key haengt als Query-Parameter dran', () => {
-  // Als Header wuerde er einen CORS-Preflight ausloesen - denselben Grund
-  // gibt es schon bei weav3r und Torn.
-  const url = travelUrl({ yataKey: 'abc123' });
-  assert.equal(url.searchParams.get('key'), 'abc123');
-  assert.ok(String(url).startsWith('https://yata.yt/'));
+test('die Adresse bleibt ohne Query-Parameter', () => {
+  // YATA cacht die Antwort bis zum naechsten Import und sagt ausdruecklich:
+  // genau diese URL aufrufen, keine Variante davon. Ein angehaengter
+  // Parameter - auch ein harmloser Cache-Buster - liefe an der
+  // zwischengespeicherten Antwort vorbei.
+  assert.equal(String(travelUrl({ yataUrl: 'https://yata.yt/api/v1/travel/export/?key=abc' })),
+    'https://yata.yt/api/v1/travel/export/');
+  assert.equal(String(travelUrl({ yataUrl: 'https://yata.yt/api/v1/travel/export/#travel' })),
+    'https://yata.yt/api/v1/travel/export/');
+  assert.equal(String(travelUrl({ yataKey: 'abc123' })), YATA_URL, 'ein Key gehoert nicht an diese Route');
+});
+
+test('die Vorgabe ist die dokumentierte Route', () => {
+  assert.equal(YATA_URL, 'https://yata.yt/api/v1/travel/export/');
 });
 
 test('eine andere Route auf demselben Host ist erlaubt', () => {
@@ -144,9 +152,44 @@ test('die Einstellungen bestimmen, was abgerufen wird', async () => {
     return { ok: true, json: async () => EXPORT };
   };
   try {
-    await fetchTravelStocks({ settings: { yataUrl: 'https://yata.yt/api/v1/travel/export/', yataKey: 'k' } });
-    assert.equal(gesehen, 'https://yata.yt/api/v1/travel/export/?key=k');
+    await fetchTravelStocks({ settings: { yataUrl: 'https://yata.yt/api/v1/travel/export/?x=1' } });
+    assert.equal(gesehen, 'https://yata.yt/api/v1/travel/export/', 'ohne Parameter, sonst am Cache vorbei');
   } finally {
     globalThis.fetch = original;
   }
+});
+
+// ---------- Zeitstempel der Nutzlast ----------
+
+test('der Zeitstempel der Nutzlast gilt, wo ein Land keinen eigenen hat', () => {
+  const { updated, payloadAt } = parseTravelExport({
+    timestamp: 1788185900,
+    stocks: {
+      mex: { update: 1788185840, stocks: [{ id: 1, cost: 1, quantity: 1 }] },
+      cay: { stocks: [{ id: 2, cost: 1, quantity: 1 }] },
+    },
+  });
+  assert.equal(payloadAt, 1788185900000);
+  assert.equal(updated.get('mex'), 1788185840000, 'das Land kennt seinen eigenen Stand');
+  assert.equal(updated.get('cay'), 1788185900000, 'sonst gilt der der Nutzlast');
+});
+
+test('eine zwischengespeicherte Antwort ist keine neue Messung', async () => {
+  // YATA liefert bis zum naechsten Import dieselbe Nutzlast. Wuerde jeder
+  // Abruf als eigene Messung zaehlen, entstuende aus lauter gleichen Mengen
+  // ein Abverkauf von null - und die Vorhersage saehe zuversichtlich aus,
+  // ohne dass jemand hingeschaut hat.
+  const { recordSnapshot, seriesFor, estimate } = await import('../js/travelStock.js');
+  const payload = {
+    timestamp: 1788185900,
+    stocks: { mex: { update: 1788185840, stocks: [{ id: 260, name: 'Dahlia', quantity: 300, cost: 400 }] } },
+  };
+
+  const { countries, updated } = parseTravelExport(payload);
+  let store = {};
+  for (let i = 0; i < 5; i++) {
+    store = recordSnapshot(store, 'mex', countries.get('mex'), updated.get('mex'));
+  }
+  assert.equal(seriesFor(store, 'mex', 260).length, 1, 'fünf Abrufe derselben Antwort, eine Messung');
+  assert.equal(estimate(seriesFor(store, 'mex', 260)).drainPerMinute, null);
 });

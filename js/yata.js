@@ -37,9 +37,14 @@ const ALLOWED_HOST = 'yata.yt';
 /**
  * Baut die Abrufadresse aus den Einstellungen.
  *
- * Konfigurierbar, weil die genaue Route dieser App nicht bekannt sein kann:
- * aendert YATA sie, oder stimmt die Vorgabe nicht, laesst sie sich hier
- * korrigieren, statt auf einen neuen Deploy zu warten.
+ * Konfigurierbar, falls YATA die Route aendert - dann laesst sie sich hier
+ * korrigieren statt per Deploy.
+ *
+ * Ohne Query-Parameter, und das ist keine Stilfrage: YATA cacht die Antwort
+ * bis zum naechsten Import und weist ausdruecklich darauf hin, genau diese
+ * URL aufzurufen und keine Variante davon. Ein angehaengter Parameter - auch
+ * ein harmloser Cache-Buster - liefe sonst an der zwischengespeicherten
+ * Antwort vorbei. Ein Key ist fuer diese Route nicht vorgesehen.
  */
 export function travelUrl(settings = {}) {
   const raw = String(settings.yataUrl || '').trim() || YATA_URL;
@@ -55,14 +60,21 @@ export function travelUrl(settings = {}) {
       + 'Sicherheitsregel (CSP) keine anderen Server ansprechen.',
     );
   }
-  const key = String(settings.yataKey || '').trim();
-  if (key) url.searchParams.set('key', key);
+  url.search = '';
+  url.hash = '';
   return url;
 }
 
 function num(v) {
   const n = typeof v === 'string' ? Number(v.replace(/[^0-9.-]/g, '')) : v;
   return Number.isFinite(n) ? n : null;
+}
+
+/** Sekunden oder Millisekunden - beides kommt vor. */
+function stamp(value) {
+  const n = num(value);
+  if (n === null || n <= 0) return null;
+  return n > 1e11 ? n : n * 1000;
 }
 
 /** Ein einzelner Shop-Eintrag, egal unter welchen Feldnamen er ankommt. */
@@ -91,8 +103,14 @@ export function parseTravelExport(data) {
   const updated = new Map();
   const unknown = [];
 
+  // Der Zeitstempel der ganzen Nutzlast gilt fuer jedes Land, das keinen
+  // eigenen mitbringt. Ohne ihn saehe eine zwischengespeicherte Antwort aus
+  // wie eine frische Messung - und genau daraus entstuende ein Abverkauf,
+  // den es nie gab.
+  const payloadAt = stamp(data?.timestamp);
+
   const root = data?.stocks && typeof data.stocks === 'object' ? data.stocks : data;
-  if (!root || typeof root !== 'object') return { countries, updated, unknown };
+  if (!root || typeof root !== 'object') return { countries, updated, unknown, payloadAt };
 
   for (const [key, value] of Object.entries(root)) {
     const code = countryCode(key);
@@ -113,12 +131,11 @@ export function parseTravelExport(data) {
     const items = list.map(readItem).filter(Boolean);
     countries.set(code, items);
 
-    // Sekunden oder Millisekunden - beides kommt vor.
-    const stamp = num(value?.update ?? value?.updated ?? value?.timestamp);
-    if (stamp !== null) updated.set(code, stamp > 1e11 ? stamp : stamp * 1000);
+    const at = stamp(value?.update ?? value?.updated ?? value?.timestamp) ?? payloadAt;
+    if (at !== null) updated.set(code, at);
   }
 
-  return { countries, updated, unknown };
+  return { countries, updated, unknown, payloadAt };
 }
 
 /** Holt die aktuellen Auslandsvorraete. */

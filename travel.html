@@ -82,15 +82,17 @@
       fremden Seite nicht erlaubt (CORS) — das entscheidet deren Server, nicht diese App.
       Dann hilft der Weg über die Zwischenablage: Adresse in einem normalen Tab öffnen,
       die Antwort kopieren und hier einfügen. Das rechnet genauso wie ein direkter Abruf.
+      <br>
+      YATA hält die Antwort fest, bis jemand neue Vorräte einliefert. Öfter abrufen bringt
+      also nichts — und zählt hier auch nicht als neue Beobachtung, weil der Zeitstempel
+      derselbe bleibt.
     </p>
     <div class="grid">
       <label class="field">Adresse
         <input type="text" id="yataUrl" autocomplete="off" spellcheck="false">
-        <span class="hint">Nur https://yata.yt/… — andere Hosts blockt die Sicherheitsregel der Seite.</span>
-      </label>
-      <label class="field">Key (falls nötig)
-        <input type="password" id="yataKey" autocomplete="off" placeholder="leer lassen, wenn nicht verlangt">
-        <span class="hint">Wird nur an yata.yt gesendet und bleibt im Browser.</span>
+        <span class="hint">Nur https://yata.yt/… — andere Hosts blockt die Sicherheitsregel der Seite.
+          Query-Parameter werden entfernt: YATA liefert die zwischengespeicherte Antwort nur
+          unter der exakten Adresse.</span>
       </label>
     </div>
     <div class="actions">
