@@ -49,13 +49,99 @@ Seite öffnen, **Scan starten**. Mehr braucht es nicht — alle genutzten Routen
 
 Zwei optionale Keys, beide nur im `localStorage` des Browsers und nie im Repository:
 
-- **Torn API-Key** (Public Access reicht): schaltet die Gegenprobe gegen den echten
+- **Torn API-Key** (*Public Only* reicht): schaltet die Gegenprobe gegen den echten
   Item-Market-Tiefstpreis frei, angezeigt als `IM $…` an der Trefferzeile.
 - **weav3r API-Key**: für die hier genutzten Routen nicht nötig, nur für Pricelist- und
   Trade-Endpunkte.
 
 Bricht ein Scan mit einem Netzwerkfehler ab: `diagnose.html` öffnen und **Alle Routen
 testen**. Die Seite geht jede benutzte Route einzeln durch und zeigt, woran es hängt.
+
+## Sicherheit der API-Keys
+
+GitHub Pages verlangt im Free-Tier ein öffentliches Repository. **Das macht die Keys nicht
+öffentlich** — sie stehen nirgends im Repo. Öffentlich wird der Quelltext; die Keys liegen im
+`localStorage` des jeweiligen Browsers, gehen nie an GitHub und nie an einen Server dieses
+Projekts. Wer die Seite besucht, sieht ausschließlich seinen eigenen Key.
+
+Damit bleiben zwei reale Risiken, und beide sind abgedeckt:
+
+**1. Ein Key landet versehentlich im Code.** Die Git-Historie eines öffentlichen Repos ist
+dauerhaft einsehbar — ein späteres Löschen hilft nicht mehr. `tests/no-secrets.test.mjs`
+prüft bei jedem Push, dass kein Key an eine Key-Variable hartcodiert ist, in keiner URL
+steht und die Voreinstellungen in `config.js` leer ausgeliefert werden. `.gitignore` sperrt
+zusätzlich `.env`, `secrets.*`, `credentials.*` und `*.key`.
+
+**2. Eingeschleuster Code schickt den Key nach draußen.** Beide Seiten setzen eine
+Content-Security-Policy:
+
+```
+default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;
+connect-src https://weav3r.dev https://api.torn.com; base-uri 'none'; form-action 'none'
+```
+
+`connect-src` ist die entscheidende Zeile: der Browser lässt Verbindungen **nur** zu diesen
+zwei Hosts zu. Ein Versuch, den `localStorage` an einen fremden Server zu senden, wird
+blockiert, bevor der Request die Maschine verlässt. `script-src 'self'` ohne `unsafe-inline`
+verhindert, dass überhaupt fremder Code läuft. Deshalb enthält keine Seite Inline-Scripts
+oder `style=`-Attribute — die Testsuite prüft auch das, sonst würde die Policy still etwas
+kaputtmachen.
+
+Alle Werte aus der API werden vor dem Rendern escaped, Spieler-IDs in Links laufen durch
+`Number()`. Ein Itemname wie `<img src=x onerror=…>` erscheint als Text, nicht als Element.
+
+Was du selbst tun solltest:
+
+- **Nimm einen *Public Only*-Key.** Er reicht für alles, was die App tut. Selbst wenn er
+  abhandenkommt, gibt er nur öffentliche Daten preis — kein Geld, kein Inventar, keine Mails.
+- **Key auf einem fremden Rechner?** Danach *Einstellungen zurücksetzen* klicken, das leert
+  den `localStorage`.
+- **Verdacht auf Kompromittierung:** Key unter
+  [Preferences → API Key](https://www.torn.com/preferences.php#tab=api) löschen und neu
+  erzeugen. Das ist sofort wirksam.
+
+Der Torn-Key wandert als Query-Parameter (`?key=`) statt als `Authorization`-Header — das
+ist bei Torn üblich und vermeidet einen CORS-Preflight. Er steht damit in keiner
+Adresszeile und in keinem Browserverlauf, weil er nur in `fetch`-Aufrufen vorkommt.
+
+
+## Auf dem Handy
+
+Die Oberfläche ist für die Nutzung am Telefon gebaut, nicht nur dafür verkleinert.
+
+**Aus der Tabelle werden Karten.** Zehn Spalten sind auf 393 px nicht lesbar. Unter 720 px
+verschwindet die Kopfzeile und jede Trefferzeile wird zu einer Karte: Itemname als
+Überschrift, darunter Label und Wert paarweise, Profit und Gesamt hervorgehoben. Dasselbe
+Markup, nur anderes CSS — die Zell-Labels kommen aus `data-label`, gespeist aus derselben
+Spaltendefinition wie die Kopfzeile in `js/ui.js`. Weil ohne Kopfzeile niemand sortieren
+kann, gibt es darüber ein Auswahlfeld plus Richtungsknopf, das auf dieselbe Sortierfunktion
+geht.
+
+**Was sonst noch anders ist:**
+
+- Eingabefelder sind auf 16 px gesetzt. Darunter zoomt Safari beim Fokussieren in die Seite
+  hinein, und man tippt danach in einer verschobenen Ansicht weiter.
+- Alle Bedienelemente sind mindestens 44 px hoch — Apples Mindestmaß für ein Tippziel.
+- `viewport-fit=cover` plus `env(safe-area-inset-*)`: Inhalt bleibt aus Dynamic Island,
+  abgerundeten Ecken und Home-Indikator heraus.
+- Die Scan-Leiste klebt am unteren Rand, statt am Seitenanfang zu verschwinden.
+- Ein Scan dauert 30–60 Sekunden. Ein Fortschrittsbalken in der Leiste zeigt, dass noch
+  etwas passiert.
+- Die Einstellungen sind ab dem zweiten Besuch zugeklappt — sonst stehen 15 Felder zwischen
+  Seitenanfang und Trefferliste.
+- Kein verschachteltes Scrollen: auf dem Handy scrollt die Seite, nicht ein Kasten in ihr.
+
+**Auf den Home-Screen legen:** In Safari über *Teilen → Zum Home-Bildschirm*. Das Manifest
+startet die App dann ohne Browser-Leiste, mit dunkler Statusleiste und eigenem Icon.
+`icon-180.png` wird von `tools/make-icon.py` erzeugt — iOS akzeptiert für
+`apple-touch-icon` kein SVG, und die Umgebung hatte keinen Konverter, also schreibt das
+Skript das PNG direkt.
+
+Ein Hinweis zur Ehrlichkeit: sperrst du das Telefon mitten im Scan, hält iOS die Seite an.
+Der Scan läuft weiter, sobald du zurückkommst, aber er wird dadurch langsamer. Bei
+ungeduldiger Nutzung lohnt es, *Max. Kandidaten* zu senken — 20 statt 35 halbiert die
+Laufzeit.
+
 
 ## Hosting auf GitHub Pages
 
@@ -97,9 +183,10 @@ js/torn.js          Torn API v2, optional, nur für die Item-Market-Gegenprobe
 js/profit.js        Vorauswahl, Käuferwahl, Profit-Rechnung, Filter
 js/scan.js          Ablauf eines Scans, abbrechbar, mit Fortschrittsmeldung
 js/storage.js       localStorage
-js/ui.js            Tabelle, Formatierung, Sortierung
-js/app.js           Verdrahtung
-tests/              node --test, ohne Abhängigkeiten
+js/ui.js            Spaltendefinition, Tabelle/Karten, Sortierung
+js/app.js           Verdrahtung, Fortschritt
+tools/make-icon.py  erzeugt icon-180.png fuer den iOS-Home-Screen
+tests/              node --test, ohne Abhängigkeiten (inkl. Secret-Scan)
 ```
 
 `scan.js` nimmt seine API-Funktionen per `deps` entgegen, deshalb laufen die Ablauf-Tests
@@ -111,7 +198,8 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-32 Tests über Response-Parsing, Vorauswahl, Profit-Rechnung und Scan-Ablauf.
+62 Tests über Response-Parsing, Vorauswahl, Profit-Rechnung, Scan-Ablauf, Markup und
+Sortierung sowie die Key-, CSP- und Mobile-Prüfungen aus den Abschnitten oben.
 
 ## Grenzen
 

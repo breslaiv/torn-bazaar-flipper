@@ -2,9 +2,25 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14161a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Bazaar Flip">
+<meta name="format-detection" content="telephone=no">
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'none';
+  script-src 'self';
+  style-src 'self';
+  img-src 'self' data:;
+  manifest-src 'self';
+  connect-src https://weav3r.dev https://api.torn.com;
+  base-uri 'none';
+  form-action 'none'">
 <title>Torn Bazaar Flipper</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231c1f25'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='%234da3ff' font-family='sans-serif'%3E%24%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
@@ -19,13 +35,13 @@
 
 <main>
   <p class="note">
-    Kauft günstige Bazaar-Listings und verkauft sie per Trade an Spieler mit öffentlicher
-    Pricelist. Die Käuferpreise sind echte Angebote aus
+    Kauft günstige Bazaar-Listings und verkauft sie per Trade weiter.
+    <span class="wide-only">Die Käuferpreise sind echte Angebote aus
     <code>/marketplace/{id}/traders</code>, keine geschätzten Marktwerte.
-    Kein API-Key nötig — alle genutzten Routen sind öffentlich.
+    Kein API-Key nötig — alle genutzten Routen sind öffentlich.</span>
   </p>
 
-  <details class="panel" id="settingsPanel" open>
+  <details class="panel" id="settingsPanel">
     <summary>Einstellungen</summary>
 
     <h2>Modus</h2>
@@ -54,7 +70,7 @@
       </label>
     </div>
 
-    <h2 style="margin-top:20px">Vorauswahl</h2>
+    <h2 class="mt">Vorauswahl</h2>
     <div class="grid">
       <label class="field">Kandidat ab Rabatt
         <input type="number" id="prescreenPct" min="1" max="100" step="1">
@@ -79,7 +95,7 @@
       </label>
     </div>
 
-    <h2 style="margin-top:20px">Filter</h2>
+    <h2 class="mt">Filter</h2>
     <div class="grid">
       <label class="field">Min. Profit pro Stück ($)
         <input type="number" id="minProfitAbs" min="0" step="1000">
@@ -101,7 +117,7 @@
       </label>
     </div>
 
-    <h2 style="margin-top:20px">Optionale Keys</h2>
+    <h2 class="mt">Optionale Keys</h2>
     <div class="grid">
       <label class="field">Torn API-Key
         <input type="password" id="tornKey" autocomplete="off" placeholder="optional">
@@ -120,36 +136,31 @@
   </details>
 
   <div class="panel">
-    <div class="actions" style="margin-top:0">
-      <button id="scanBtn" class="primary">Scan starten</button>
-      <button id="stopBtn" disabled>Stopp</button>
-      <span id="status"></span>
-    </div>
-  </div>
-
-  <div class="panel">
     <h2>Treffer (<span id="rowCount">0</span>)</h2>
+
+    <!-- Auf dem Handy ist die Kopfzeile ausgeblendet; sortiert wird hier. -->
+    <div class="sortbar">
+      <label class="field" for="sortSelect">Sortieren nach</label>
+      <select id="sortSelect"></select>
+      <button id="sortDir" class="dir" aria-label="absteigend">&darr;</button>
+    </div>
+
     <div class="table-wrap">
       <table id="results">
-        <thead>
-          <tr>
-            <th class="left" data-sort="itemName">Item</th>
-            <th class="left" data-sort="sellerName">Bazaar</th>
-            <th data-sort="buy">Kaufpreis</th>
-            <th class="left" data-sort="buyerName">Käufer</th>
-            <th data-sort="reference">Ankauf</th>
-            <th data-sort="sellNet">Netto</th>
-            <th data-sort="profitPerUnit">Profit/Stück</th>
-            <th data-sort="profitPct">Marge</th>
-            <th data-sort="units">Menge</th>
-            <th data-sort="totalProfit">Gesamt</th>
-          </tr>
-        </thead>
+        <thead></thead>
         <tbody></tbody>
       </table>
     </div>
   </div>
 </main>
+
+<!-- Bleibt beim Scrollen durch die Treffer am unteren Rand stehen. -->
+<div class="actionbar">
+  <button id="scanBtn" class="primary">Scan starten</button>
+  <button id="stopBtn" disabled>Stopp</button>
+  <div id="progress" class="progress" hidden><span></span></div>
+  <span id="status"></span>
+</div>
 
 <script type="module" src="js/app.js"></script>
 </body>

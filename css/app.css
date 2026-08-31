@@ -14,6 +14,11 @@
 
 * { box-sizing: border-box; }
 
+html {
+  /* Safari skaliert sonst beim Drehen die Schrift eigenmaechtig hoch. */
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -28,7 +33,9 @@ header {
   align-items: baseline;
   gap: 16px;
   flex-wrap: wrap;
-  padding: 14px 20px;
+  /* env() haelt Inhalt aus Dynamic Island und abgerundeten Ecken heraus. */
+  padding: max(14px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
+           14px max(20px, env(safe-area-inset-left));
   border-bottom: 1px solid var(--border);
   background: var(--panel);
 }
@@ -87,6 +94,8 @@ button {
   cursor: pointer;
   background: var(--panel-2);
   transition: background .12s;
+  /* Unterdrueckt die 300ms-Verzoegerung und das Doppeltipp-Zoomen in Safari. */
+  touch-action: manipulation;
 }
 button:hover:not(:disabled) { background: #2e333c; }
 button:disabled { opacity: .5; cursor: not-allowed; }
@@ -151,4 +160,172 @@ pre.raw {
   font-size: 13px;
   border-radius: 0 5px 5px 0;
   margin: 0 0 14px;
+}
+
+/* Kein style="" im Markup: die Content-Security-Policy verbietet
+   Inline-Styles, damit nichts Eingeschleustes gerendert werden kann. */
+/* Spezifisch genug, um .panel > h2 bzw. .actions zu ueberstimmen -
+   ohne Inline-Style gewinnt sonst die allgemeinere Regel. */
+.panel > h2.mt { margin-top: 20px; }
+.actions.mt0 { margin-top: 0; }
+.empty { color: var(--muted); }
+
+/* ---------- Sortierleiste und Aktionsleiste ---------- */
+
+.sortbar {
+  display: none;                 /* Auf dem Desktop sortiert man per Spaltenkopf. */
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.sortbar label { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.sortbar select { flex: 1; min-width: 0; }
+.sortbar .dir { width: 46px; text-align: center; font-size: 16px; }
+
+thead th.sorted { color: var(--accent); }
+
+/* Bleibt beim Scrollen durch lange Trefferlisten am unteren Rand stehen. */
+.actionbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px max(20px, env(safe-area-inset-right))
+           max(12px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+.actionbar #status { flex: 1 1 100%; }
+
+/* Ein Scan laeuft 30-60 Sekunden; ohne Anzeige wirkt die Seite eingefroren. */
+.progress {
+  flex: 1 1 100%;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+.progress > span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width .25s ease-out;
+}
+[hidden] { display: none !important; }
+
+/* Zugeklappt braucht der Kasten nicht die Polsterung eines Formulars. */
+details.panel:not([open]) { padding: 6px 12px; }
+
+/* ---------- Handy ---------- */
+
+@media (max-width: 720px) {
+  body { font-size: 15px; }
+
+  header { padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
+  header h1 { font-size: 15px; }
+  header nav { gap: 12px; width: 100%; margin-left: 0; }
+
+  main {
+    padding: 14px max(14px, env(safe-area-inset-left)) 14px max(14px, env(safe-area-inset-right));
+  }
+
+  .panel { padding: 14px 12px; border-radius: 10px; }
+  .grid { grid-template-columns: 1fr; gap: 14px; }
+
+  /* Safari zoomt beim Fokussieren jedes Feldes unter 16px hinein.
+     Und 44px ist Apples Mindestgroesse fuer ein Tippziel. */
+  input, select, button, textarea {
+    font-size: 16px;
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+  input[type="checkbox"] { min-height: 0; width: 22px; height: 22px; }
+  summary { min-height: 44px; display: flex; align-items: center; }
+
+  .sortbar { display: flex; }
+
+  .actions { gap: 10px; }
+  .actions button { flex: 1; }
+
+  /* Die Kopfzeile entfaellt, jede Zeile wird zur Karte. Das Label steht
+     dank data-label an der Zelle selbst - ein einziges Markup fuer beides. */
+  .table-wrap { max-height: none; overflow: visible; }
+
+  #results, #results tbody, #results tr, #results td { display: block; width: 100%; }
+  #results thead { display: none; }
+
+  #results tr {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+  }
+
+  #results td {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 14px;
+    border: 0;
+    padding: 4px 0;
+    text-align: right;
+    white-space: normal;
+  }
+  #results td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 12px;
+    text-align: left;
+    flex: 0 0 auto;
+  }
+  /* Genau zwei Flex-Kinder pro Zeile - sonst schiebt space-between einen
+     mehrteiligen Wert (Name + Bewertung) in die Mitte. */
+  #results td > .val {
+    text-align: right;
+    min-width: 0;
+  }
+
+  /* Itemname als Kartenkopf, ohne Label und ueber die volle Breite. */
+  #results td:first-child {
+    display: block;
+    text-align: left;
+    font-size: 16px;
+    font-weight: 600;
+    padding: 0 0 8px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  #results td:first-child::before { content: none; }
+  #results td:first-child > .val { text-align: left; }
+
+  /* Profit ist der Grund, warum man hinschaut. */
+  #results td.strong { font-size: 17px; font-weight: 600; }
+
+  #results td.empty { text-align: left; }
+  #results td.empty::before { content: none; }
+
+  #results tr:has(td.empty) { background: none; border: 0; padding: 0; }
+
+  .note { font-size: 13px; }
+  .wide-only { display: none; }
+
+  .actionbar { padding-top: 10px; padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+  .actionbar #status {
+    font-size: 12px;
+    line-height: 1.35;
+    max-height: 2.7em;
+    overflow: hidden;
+  }
+  pre.raw { font-size: 11px; max-height: 60vh; }
+}
+
+/* Sehr schmal (iPhone SE quer zu Portrait): Labels und Werte untereinander. */
+@media (max-width: 360px) {
+  #results td { flex-wrap: wrap; gap: 2px; }
+  #results td::before { flex: 1 0 100%; }
 }

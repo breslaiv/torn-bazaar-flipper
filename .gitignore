@@ -1,2 +1,10 @@
 node_modules/
 .DS_Store
+
+# Nichts, was einen Key enthalten koennte, darf versehentlich eingecheckt
+# werden - das Repo ist oeffentlich und die Historie bleibt es auch.
+.env
+.env.*
+secrets.*
+credentials.*
+*.key
