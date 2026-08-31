@@ -1,0 +1,403 @@
+// Verdrahtung der Flugseite.
+
+import { loadSettings, saveSettings } from './storage.js?v=9';
+import { fetchMarketplace } from './weav3r.js?v=9';
+import { fetchTravelStocks, YataError } from './yata.js?v=9';
+import {
+  COUNTRIES, AIRSTRIPS, countryName, oneWayMinutes, planTrips, planCountry,
+} from './travel.js?v=9';
+import {
+  loadStock, saveStock, recordSnapshot, seriesFor, predict, estimate,
+} from './travelStock.js?v=9';
+import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=9';
+import { renderTable } from './table.js?v=9';
+import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=9';
+
+let prices = new Map();
+let stocks = new Map();      // code -> [{itemId, itemName, cost, quantity}]
+let updated = new Map();     // code -> Zeitstempel der YATA-Daten
+let observations = {};       // Messreihen je Land und Item
+
+const fmtUnits = new Intl.NumberFormat('de-DE');
+const fmtMinutes = (m) => (m === null || m === undefined
+  ? '—'
+  : (m < 60 ? `${Math.round(m)} min` : `${Math.floor(m / 60)}:${String(Math.round(m % 60)).padStart(2, '0')} h`));
+
+function settings() {
+  return loadSettings();
+}
+
+// ---------- Vorhersage ----------
+
+/** Vorrat bei Landung, mit Herkunft der Zahl. */
+function arrival(code, item, minutes) {
+  const series = seriesFor(observations, code, item.itemId);
+  const p = predict(series, minutes ?? 0);
+  return { ...p, now: item.quantity };
+}
+
+function confidenceTag(p) {
+  if (p.confidence === 'unbekannt') return '<span class="tag">zu wenig Daten</span>';
+  return `<span class="tag${p.confidence === 'grob' ? ' warn' : ''}">${escapeHtml(p.confidence)}</span>`;
+}
+
+// ---------- Tabellen ----------
+
+const TRIP_COLUMNS = [
+  { key: 'country', label: 'Ziel', align: 'left', cell: (t) => ({ text: t.name }) },
+  { key: 'time', label: 'Rundflug', cell: (t) => ({ text: fmtMinutes(t.roundTripMinutes) }) },
+  {
+    key: 'item',
+    label: 'Bestes Item',
+    align: 'left',
+    cell: (t) => ({ text: t.best ? t.best.itemName : '—' }),
+  },
+  { key: 'cost', label: 'Kauf dort', cell: (t) => ({ text: t.best ? fmtMoney(t.best.cost) : '—' }) },
+  {
+    key: 'unit',
+    label: 'Profit/Stück',
+    cell: (t) => (t.best
+      ? { text: `${fmtMoney(t.best.profitPerUnit)} (${fmtPct(t.best.profitPct)})`, cls: 'pos' }
+      : { text: '—' }),
+  },
+  {
+    key: 'trip',
+    label: 'Pro Flug',
+    cell: (t) => (t.best
+      ? {
+        html: `${escapeHtml(fmtMoney(t.tripProfit))}<span class="tag">${t.best.units}× `
+          + `${escapeHtml(t.best.limitedBy)}</span>`,
+        cls: 'strong pos',
+      }
+      : { text: '—' }),
+  },
+  {
+    key: 'perMinute',
+    label: 'Pro Minute',
+    cell: (t) => ({
+      text: t.profitPerMinute === null ? '—' : fmtMoney(t.profitPerMinute),
+      cls: 'strong',
+    }),
+  },
+  {
+    key: 'stock',
+    label: 'Bei Landung',
+    cell: (t) => {
+      if (!t.best) return { text: '—' };
+      const p = arrival(t.code, t.best, t.oneWayMinutes);
+      const now = Number.isFinite(t.best.quantity) ? `${fmtUnits.format(t.best.quantity)} jetzt` : 'Vorrat unbekannt';
+      return {
+        html: (p.quantity === null
+          ? `<span class="muted">?</span>`
+          : escapeHtml(fmtUnits.format(p.quantity)))
+          + confidenceTag(p)
+          + `<span class="tag">${escapeHtml(now)}</span>`,
+      };
+    },
+  },
+];
+
+const ITEM_COLUMNS = [
+  { key: 'item', label: 'Item', align: 'left', cell: (r) => ({ text: r.itemName }) },
+  { key: 'cost', label: 'Kauf dort', cell: (r) => ({ text: fmtMoney(r.cost) }) },
+  { key: 'market', label: 'Markt zuhause', cell: (r) => ({ text: r.marketPrice ? fmtMoney(r.marketPrice) : '—' }) },
+  {
+    key: 'unit',
+    label: 'Profit/Stück',
+    cell: (r) => ({
+      text: r.profitPerUnit === null ? '—' : fmtMoney(r.profitPerUnit),
+      cls: r.profitPerUnit >= 0 ? 'pos' : 'neg',
+    }),
+  },
+  { key: 'trip', label: 'Pro Flug', cell: (r) => ({ text: fmtMoney(r.tripProfit), cls: 'strong' }) },
+  {
+    key: 'stock',
+    label: 'Vorrat',
+    cell: (r) => ({ text: Number.isFinite(r.quantity) ? fmtUnits.format(r.quantity) : '—' }),
+  },
+];
+
+const STAT_COLUMNS = [
+  { key: 'what', label: 'Item', align: 'left', cell: (r) => ({ text: `${countryName(r.code)} · ${r.itemName}` }) },
+  { key: 'samples', label: 'Messungen', cell: (r) => ({ text: fmtUnits.format(r.e.samples) }) },
+  {
+    key: 'drain',
+    label: 'Abverkauf',
+    cell: (r) => ({ text: r.e.drainPerMinute ? `${r.e.drainPerMinute.toFixed(1)}/min` : '—' }),
+  },
+  {
+    key: 'restock',
+    label: 'Nachschub',
+    cell: (r) => ({
+      text: r.e.restockAmount
+        ? `${fmtUnits.format(r.e.restockAmount)} alle ${r.e.restockIntervalMinutes
+          ? `${Math.round(r.e.restockIntervalMinutes)} min` : '?'}`
+        : '—',
+    }),
+  },
+];
+
+// ---------- Aufbau ----------
+
+function tile(label, value, sub = '', cls = '') {
+  return `<div class="tile">
+    <div class="label">${escapeHtml(label)}</div>
+    <div class="value ${cls}">${value}</div>
+    ${sub ? `<div class="sub">${escapeHtml(sub)}</div>` : ''}
+  </div>`;
+}
+
+function render() {
+  const s = settings();
+  const trips = planTrips(stocks, prices, s);
+  const withProfit = trips.filter((t) => t.profitPerMinute !== null && t.profitPerMinute > 0);
+
+  const best = withProfit[0] || null;
+  const parts = [
+    tile('Bestes Ziel', best ? escapeHtml(best.name) : '—',
+      best ? `${fmtMoney(best.profitPerMinute)} pro Minute` : 'keine Vorräte geladen'),
+    tile('Pro Flug', best ? fmtMoney(best.tripProfit) : '—',
+      best ? `${best.best.units}× ${best.best.itemName}` : '', 'pos'),
+    tile('Rundflug', best ? fmtMinutes(best.roundTripMinutes) : '—',
+      best ? `einfach ${fmtMinutes(best.oneWayMinutes)}` : ''),
+    tile('Einsatz', best ? fmtMoney(best.best.spend) : '—',
+      best ? `begrenzt durch ${best.best.limitedBy}` : ''),
+  ];
+  document.getElementById('tiles').innerHTML = parts.join('');
+
+  renderTable('tripTable', TRIP_COLUMNS, withProfit, {
+    empty: stocks.size
+      ? 'Kein Ziel mit Gewinn — Preise geladen, aber nichts lohnt sich gerade.'
+      : 'Noch keine Vorräte. „Vorräte laden" holt sie von YATA, oder trag unten ein, was du siehst.',
+  });
+  document.getElementById('tripCount').textContent = String(withProfit.length);
+
+  renderDetail();
+  renderStats();
+}
+
+function renderDetail() {
+  const code = document.getElementById('countrySelect').value;
+  const items = stocks.get(code) || [];
+  const plan = planCountry(code, items, prices, settings());
+  renderTable('itemTable', ITEM_COLUMNS, plan.items, { empty: 'Für dieses Land nichts erfasst.' });
+}
+
+function renderStats() {
+  const rows = [];
+  for (const key of Object.keys(observations)) {
+    const [code, id] = key.split(':');
+    const e = estimate(observations[key]);
+    if (e.samples < 2) continue;
+    const itemId = Number(id);
+    const name = (stocks.get(code) || []).find((i) => i.itemId === itemId)?.itemName
+      || prices.get(itemId)?.itemName
+      || `Item ${itemId}`;
+    rows.push({ code, itemId, itemName: name, e });
+  }
+  rows.sort((a, b) => b.e.samples - a.e.samples);
+  renderTable('statsTable', STAT_COLUMNS, rows, {
+    empty: 'Noch keine Reihe mit mehr als einer Messung.',
+  });
+  document.getElementById('statsHint').textContent = rows.length
+    ? 'Aus diesen Reihen entsteht die Vorhersage. Zwei Punkte reichen für eine grobe Richtung; '
+      + 'brauchbar wird sie, sobald auch ein Nachschub dabei war.'
+    : 'Jedes Laden der Vorräte und jede Eingabe von Hand legt hier eine Messung ab.';
+}
+
+// ---------- Daten ----------
+
+async function loadPrices() {
+  const cached = readPriceCache();
+  if (cached) {
+    prices = cached.prices;
+    return;
+  }
+  try {
+    const { items } = await fetchMarketplace(settings());
+    prices = priceMap(items);
+    writePriceCache(items);
+  } catch (err) {
+    console.warn('Marktpreise nicht geladen:', err.message);
+  }
+}
+
+function fillItemList() {
+  const list = document.getElementById('itemList');
+  const seen = new Map();
+  for (const items of stocks.values()) {
+    for (const i of items) seen.set(i.itemId, i.itemName);
+  }
+  list.innerHTML = [...seen.values()].map((n) => `<option value="${escapeHtml(n)}"></option>`).join('');
+}
+
+async function refresh() {
+  const btn = document.getElementById('refreshBtn');
+  const msg = document.getElementById('sourceMsg');
+  btn.disabled = true;
+  setStatus('Lade Marktpreise und Vorräte…');
+
+  try {
+    await loadPrices();
+    const { countries, updated: stamps, unknown } = await fetchTravelStocks();
+    stocks = countries;
+    updated = stamps;
+
+    // Jeder Abruf ist zugleich eine Messung - so entsteht die Reihe, aus der
+    // spaeter die Vorhersage kommt, ohne dass jemand etwas eintippen muss.
+    for (const [code, items] of countries) {
+      observations = recordSnapshot(observations, code, items, stamps.get(code) || Date.now());
+    }
+    saveStock(observations);
+
+    fillItemList();
+    render();
+
+    const newest = [...updated.values()].sort((a, b) => b - a)[0];
+    msg.textContent = `${countries.size} Länder von yata.yt`
+      + (newest ? `, Stand ${new Date(newest).toLocaleTimeString('de-DE')}` : '')
+      + (unknown.length ? `, ${unknown.length} unbekannte Schlüssel übersprungen` : '');
+    setStatus('Vorräte geladen.', 'ok');
+  } catch (err) {
+    // Der wahrscheinlichste Fall, und deshalb kein Abbruch: Preise und Zeiten
+    // stehen, von Hand erfasste Vorraete auch. Nur die fremde Quelle fehlt.
+    msg.textContent = err instanceof YataError ? err.message : String(err.message || err);
+    render();
+    setStatus('Vorräte nicht geladen — von Hand erfassen geht weiter.', 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------- Von Hand ----------
+
+function resolveItem(text) {
+  const wanted = String(text || '').trim().toLowerCase();
+  if (!wanted) return null;
+  if (/^\d+$/.test(wanted)) {
+    const id = Number(wanted);
+    return { itemId: id, itemName: prices.get(id)?.itemName || `Item ${id}` };
+  }
+  for (const items of stocks.values()) {
+    const hit = items.find((i) => String(i.itemName).toLowerCase() === wanted);
+    if (hit) return { itemId: hit.itemId, itemName: hit.itemName };
+  }
+  for (const [itemId, p] of prices) {
+    if (String(p.itemName || '').toLowerCase() === wanted) return { itemId, itemName: p.itemName };
+  }
+  return null;
+}
+
+function addManualStock() {
+  const msg = document.getElementById('manualMsg');
+  const code = document.getElementById('mCountry').value;
+  const hit = resolveItem(document.getElementById('mItem').value);
+  const quantity = Number(document.getElementById('mQuantity').value);
+  const cost = Number(document.getElementById('mCost').value);
+
+  if (!hit) {
+    msg.textContent = 'Item nicht erkannt — Name aus der Liste oder Item-ID.';
+    return;
+  }
+  if (!Number.isFinite(quantity) || quantity < 0) {
+    msg.textContent = 'Vorrat als Zahl eintragen, 0 ist erlaubt.';
+    return;
+  }
+
+  const existing = stocks.get(code) || [];
+  const item = {
+    itemId: hit.itemId,
+    itemName: hit.itemName,
+    quantity,
+    cost: cost > 0 ? cost : existing.find((i) => i.itemId === hit.itemId)?.cost || 0,
+  };
+  if (!item.cost) {
+    msg.textContent = 'Preis im Shop fehlt — einmal eintragen, danach merkt die App ihn.';
+    return;
+  }
+
+  stocks.set(code, [...existing.filter((i) => i.itemId !== hit.itemId), item]);
+  observations = saveStock(recordSnapshot(observations, code, [item]));
+
+  fillItemList();
+  render();
+  msg.textContent = `${item.itemName} in ${countryName(code)}: ${fmtUnits.format(quantity)} Stück notiert.`;
+}
+
+// ---------- Reisezeiten ----------
+
+function renderTimeGrid() {
+  const s = settings();
+  document.getElementById('timeGrid').innerHTML = COUNTRIES.map((c) => `
+    <label class="field">${escapeHtml(c.name)}
+      <input type="number" id="time-${c.code}" min="1" max="600" step="1" inputmode="numeric"
+        placeholder="${Math.round(oneWayMinutes(c.code, { ...s, travelTimes: {} }))}"
+        value="${s.travelTimes?.[c.code] ?? ''}">
+      <span class="hint">Standard ${c.minutes} min, einfach</span>
+    </label>`).join('');
+}
+
+function saveTimes() {
+  const travelTimes = {};
+  for (const c of COUNTRIES) {
+    const value = Number(document.getElementById(`time-${c.code}`).value);
+    if (Number.isFinite(value) && value > 0) travelTimes[c.code] = value;
+  }
+  saveSettings({ ...settings(), travelTimes });
+  render();
+  document.getElementById('timeMsg').textContent = Object.keys(travelTimes).length
+    ? `${Object.keys(travelTimes).length} eigene Zeiten gespeichert.`
+    : 'Keine eigenen Zeiten — es gilt die Tabelle.';
+}
+
+function init() {
+  showVersion();
+  const s = settings();
+
+  document.getElementById('travelCapacity').value = s.travelCapacity;
+  document.getElementById('travelAirstrip').innerHTML = AIRSTRIPS
+    .map((a) => `<option value="${a.key}">${escapeHtml(a.label)}</option>`).join('');
+  document.getElementById('travelAirstrip').value = s.travelAirstrip;
+
+  const countryOptions = COUNTRIES
+    .map((c) => `<option value="${c.code}">${escapeHtml(c.name)}</option>`).join('');
+  document.getElementById('countrySelect').innerHTML = countryOptions;
+  document.getElementById('mCountry').innerHTML = countryOptions;
+
+  observations = loadStock();
+  renderTimeGrid();
+
+  document.getElementById('travelCapacity').addEventListener('change', () => {
+    saveSettings({ ...settings(), travelCapacity: Number(document.getElementById('travelCapacity').value) || 1 });
+    render();
+  });
+  document.getElementById('travelAirstrip').addEventListener('change', () => {
+    saveSettings({ ...settings(), travelAirstrip: document.getElementById('travelAirstrip').value });
+    renderTimeGrid();
+    render();
+  });
+  document.getElementById('refreshBtn').addEventListener('click', refresh);
+  document.getElementById('countrySelect').addEventListener('change', renderDetail);
+  document.getElementById('addStockBtn').addEventListener('click', addManualStock);
+  document.getElementById('saveTimesBtn').addEventListener('click', saveTimes);
+  document.getElementById('resetTimesBtn').addEventListener('click', () => {
+    saveSettings({ ...settings(), travelTimes: {} });
+    renderTimeGrid();
+    render();
+    document.getElementById('timeMsg').textContent = 'Zurück auf die Tabelle.';
+  });
+  document.getElementById('clearStockBtn').addEventListener('click', () => {
+    if (!confirm('Alle Beobachtungen löschen? Die Vorhersage fängt dann von vorn an.')) return;
+    observations = saveStock({});
+    render();
+    setStatus('Beobachtungen gelöscht.', 'ok');
+  });
+
+  loadPrices().then(() => {
+    fillItemList();
+    render();
+  });
+  render();
+}
+
+init();

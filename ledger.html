@@ -30,6 +30,7 @@
   <span id="appVersion" class="tag"></span>
   <nav>
     <a href="index.html">Scanner</a>
+    <a href="travel.html">Flüge</a>
     <a href="diagnose.html">API-Diagnose</a>
   </nav>
 </header>
@@ -37,7 +38,7 @@
 <main>
   <p class="note" id="backupHint" hidden></p>
 
-  <div class="sortbar">
+  <div class="controls">
     <label class="field" for="periodSelect">Zeitraum</label>
     <!-- Die Optionen baut ledgerPage.js aus PERIODS: eine Liste, die auch die
          Rechnung benutzt, kann nicht von ihr abweichen. -->
@@ -78,7 +79,7 @@
       gedacht war und zu welchem Preis. Die Notiz ist deine eigene und bleibt beim
       nächsten Import erhalten.
     </p>
-    <div class="sortbar">
+    <div class="controls">
       <label class="field" for="offerFilter">Zeigen</label>
       <select id="offerFilter">
         <option value="open">nur offene</option>

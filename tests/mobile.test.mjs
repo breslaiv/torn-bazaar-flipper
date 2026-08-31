@@ -4,9 +4,12 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 
-const PAGES = ['./index.html', './diagnose.html', './ledger.html'];
+// Aus dem Verzeichnis gelesen, nicht aufgezaehlt: eine neu angelegte Seite
+// soll nicht an diesen Pruefungen vorbeirutschen, nur weil jemand vergisst,
+// sie hier einzutragen. Genau das war mit travel.html passiert.
+const PAGES = readdirSync('.').filter((f) => f.endsWith('.html')).sort().map((f) => `./${f}`);
 const html = Object.fromEntries(PAGES.map((p) => [p, readFileSync(p, 'utf8')]));
 const css = readFileSync('./css/app.css', 'utf8');
 

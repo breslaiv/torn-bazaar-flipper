@@ -450,6 +450,61 @@ ungeduldiger Nutzung lohnt es, *Max. Kandidaten* zu senken — 20 statt 35 halbi
 Laufzeit. Seit die Kandidaten parallel laufen, fällt das weniger ins Gewicht.
 
 
+## Flüge
+
+`travel.html` plant Item-Running: wohin fliegen, was mitnehmen, und lohnt sich der Weg
+überhaupt. Gerechnet wird in **Profit pro Minute Rundflug** — ein Flug nach Südafrika bringt
+pro Flug mehr als einer nach Mexiko und dauert zehnmal so lang; wer die Zeit nicht mitrechnet,
+fliegt systematisch zu weit.
+
+Die Menge, die eine Zeile ansetzt, ist die kleinste von drei Grenzen: Platz im Koffer,
+Ware im Regal, Geld auf der Hand. Welche gerade bindet, steht als Marker daneben.
+
+### Woher die Zahlen kommen
+
+| | Quelle |
+|---|---|
+| Marktwert zuhause | weav3r-Katalog, derselbe wie im Scanner |
+| Preis und Vorrat im Ausland | yata.yt, oder von Hand erfasst |
+| Reisezeit | Tabelle mal Faktor des Fliegers, oder deine gemessene Zeit |
+
+**Torns API kennt die Auslandsvorräte nicht.** In der offiziellen Spec (6.13.1) gibt es
+`/user/travel` für den eigenen Flugstatus, aber keinen Bestand der Shops in Mexiko oder Japan;
+weav3r hat gar keine Travel-Routen. In Torn werden diese Zahlen seit jeher von Spielern
+gesammelt, und [YATA](https://yata.yt) ist die verbreitetste Sammelstelle. Deshalb steht
+`https://yata.yt` in der CSP — aber nur auf den zwei Seiten, die es brauchen.
+
+Ob YATA Zugriffe aus dem Browser einer fremden Seite erlaubt, entscheidet deren Server, nicht
+diese App. Der Fall ist eingeplant: schlägt es fehl, sagt die Meldung CORS als wahrscheinliche
+Ursache, die Seite rechnet mit von Hand erfassten Vorräten weiter, und **API-Diagnose → YATA
+testen** zeigt, was tatsächlich zurückkam.
+
+### Vorhersage
+
+Ein Vorrat bewegt sich in zwei Richtungen: Spieler kaufen ihn leer, und in festen Abständen
+legt der Shop nach. Beides lässt sich nicht ausrechnen, nur beobachten. Jeder Abruf und jede
+Eingabe legt deshalb eine Messung ab, und aus der Reihe entstehen zwei Größen:
+
+- **Abverkauf** in Stück pro Minute, gemessen an fallenden Mengen.
+- **Nachschub**: wie viel ein Sprung nach oben bringt, und in welchem Abstand solche Sprünge
+  passieren.
+
+Genommen wird jeweils der **Median**, nicht der Durchschnitt — ein einzelner Großeinkauf zöge
+einen Mittelwert so weit, dass die Vorhersage für alle folgenden Flüge unbrauchbar wäre.
+Gerechnet wird ab der letzten Messung, nicht ab jetzt: zwischen beiden liegt oft eine Stunde.
+
+**Was die App nicht gesehen hat, sagt sie nicht vorher.** Unter zwei Messungen steht dort
+*zu wenig Daten*, und jede Schätzung trägt ihre Güte sichtbar mit sich: *grob*, solange kein
+Nachschub beobachtet wurde oder die Daten alt sind, sonst *brauchbar*. Eine erfundene Zahl ist
+hier besonders teuer — man fliegt drei Stunden und steht vor einem leeren Regal.
+
+### Reisezeiten
+
+Die Tabelle enthält die Standardzeiten ohne Perks (Mexiko 26 min bis Südafrika 297 min),
+multipliziert mit dem Faktor des Fliegers. Stimmt eine Zeit bei dir nicht — andere Perks,
+anderes Flugzeug —, trag deine gemessene ein: sie schlägt die Tabelle, weil sie alles bereits
+enthält.
+
 ## Hosting auf GitHub Pages
 
 `.github/workflows/pages.yml` deployt bei jedem Push auf `main`. Einmalig nötig:
@@ -493,6 +548,11 @@ js/scan.js          Ablauf eines Scans, abbrechbar, mit Fortschrittsmeldung
 js/storage.js       localStorage
 js/ui.js            Spaltendefinition, Tabelle/Karten, Sortierung
 js/app.js           Verdrahtung, Fortschritt
+travel.html         Flugplaner: Ziele, Erträge, Vorratsvorhersage
+js/travel.js        Länder, Reisezeiten, Ertrag je Flug und Minute
+js/yata.js          YATA-Client für die Auslandsvorräte, defensiv geparst
+js/travelStock.js   Messreihen, Abverkauf, Nachschub, Vorhersage
+js/travelPage.js    Verdrahtung der Flugseite
 ledger.html         Buchführung über Käufe, Verkäufe und Profit
 js/ledger.js        Ereignismodell, FIFO-Zuordnung, Kennzahlen, Zeitraeume
 js/valuation.js     Bestandsbewertung, Kurs-Zwischenspeicher
@@ -516,9 +576,9 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-230 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
+264 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
 Parallelität und Abbruch, Zeitstempel-Deutung, Scan-Ablauf, Markup, Sortierung,
-Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status, Bestandsbewertung und Persistenz sowie die Key-, CSP-,
+Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status, Bestandsbewertung, Flugplanung, Vorratsvorhersage und Persistenz sowie die Key-, CSP-,
 Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
 
 Der Sortier-Controller wird gegen einen kleinen DOM-Stub getestet (`tests/sorting.test.mjs`),

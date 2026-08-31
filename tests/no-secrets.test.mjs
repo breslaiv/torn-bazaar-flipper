@@ -8,7 +8,10 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULTS } from '../js/config.js';
 
-const PAGES = ['./index.html', './diagnose.html', './ledger.html'];
+// Aus dem Verzeichnis gelesen, nicht aufgezaehlt: eine neu angelegte Seite
+// soll nicht an diesen Pruefungen vorbeirutschen, nur weil jemand vergisst,
+// sie hier einzutragen. Genau das war mit travel.html passiert.
+const PAGES = readdirSync('.').filter((f) => f.endsWith('.html')).sort().map((f) => `./${f}`);
 const SKIP_DIRS = new Set(['.git', 'node_modules']);
 const TEXT_EXT = /\.(js|mjs|cjs|json|html|css|md|yml|yaml|txt)$/;
 
@@ -74,7 +77,14 @@ test('die Seiten erlauben Verbindungen nur zu Torn und weav3r', () => {
     const connect = csp[1].match(/connect-src([^;"]*)/);
     assert.ok(connect, `${page}: connect-src fehlt`);
     const hosts = connect[1].trim().split(/\s+/).filter(Boolean).sort();
-    assert.deepEqual(hosts, ['https://api.torn.com', 'https://weav3r.dev'], `${page}: unerwartete Ziel-Hosts`);
+    // Die Liste ist bewusst kurz und namentlich: jede weitere Domain ist eine
+    // Stelle, an die ein Key oder eine Anfrage abfliessen koennte. yata.yt kam
+    // dazu, weil weder Torn noch weav3r die Auslandsvorraete kennen - und nur
+    // auf den Seiten, die sie brauchen.
+    const allowed = /travel|diagnose/.test(page)
+      ? ['https://api.torn.com', 'https://weav3r.dev', 'https://yata.yt']
+      : ['https://api.torn.com', 'https://weav3r.dev'];
+    assert.deepEqual(hosts, allowed, `${page}: unerwartete Ziel-Hosts`);
 
     assert.match(csp[1], /default-src 'none'/, `${page}: default-src muss 'none' sein`);
     assert.match(csp[1], /script-src 'self'/, `${page}: script-src muss auf 'self' begrenzt sein`);

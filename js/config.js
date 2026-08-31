@@ -67,6 +67,11 @@ export const DEFAULTS = {
   // Full-Access-Key, und das entscheidet niemand ausser dem Nutzer.
   ledgerAutoImport: false,
 
+  // Flugplanung
+  travelCapacity: 5,           // Items pro Flug: 5 ohne Koffer, bis 19 mit
+  travelAirstrip: 'standard',  // siehe AIRSTRIPS in js/travel.js
+  travelTimes: {},             // gemessene Einwegzeiten je Land, schlagen die Tabelle
+
   // Betrieb
   autoRefreshSec: 0,           // 0 = aus
 };

@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14161a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Bazaar Flip">
+<meta name="format-detection" content="telephone=no">
+<meta name="app-build" content="9">
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'none';
+  script-src 'self';
+  style-src 'self';
+  img-src 'self' data:;
+  manifest-src 'self';
+  connect-src https://weav3r.dev https://api.torn.com https://yata.yt;
+  base-uri 'none';
+  form-action 'none'">
+<title>Flüge &mdash; Torn Bazaar Flipper</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header>
+  <h1>Flüge</h1>
+  <span id="appVersion" class="tag"></span>
+  <nav>
+    <a href="index.html">Scanner</a>
+    <a href="ledger.html">Ledger</a>
+    <a href="diagnose.html">API-Diagnose</a>
+  </nav>
+</header>
+
+<main>
+  <p class="note">
+    Was lohnt sich zu holen — gerechnet in <strong>Profit pro Minute Rundflug</strong>.
+    Ein Flug nach Südafrika bringt mehr als einer nach Mexiko und dauert zehnmal so lang;
+    wer die Zeit nicht mitrechnet, fliegt systematisch zu weit.
+  </p>
+
+  <div class="controls">
+    <label class="field" for="capacity">Kapazität</label>
+    <input type="number" id="travelCapacity" min="1" max="30" step="1" inputmode="numeric">
+    <label class="field" for="travelAirstrip">Flieger</label>
+    <select id="travelAirstrip"></select>
+    <button id="refreshBtn" class="primary">Vorräte laden</button>
+  </div>
+  <p class="hint" id="sourceMsg"></p>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="panel">
+    <h2>Ziele (<span id="tripCount">0</span>)</h2>
+    <p class="hint">
+      Bestes Item je Land. <em>Bei Landung</em> ist eine Schätzung aus dem, was diese App
+      bisher gesehen hat — keine Zusage des Shops.
+    </p>
+    <div class="table-wrap">
+      <table id="tripTable" class="cards"><thead></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <details class="panel" id="detailPanel">
+    <summary>Alle Items eines Landes</summary>
+    <div class="controls">
+      <label class="field" for="countrySelect">Land</label>
+      <select id="countrySelect"></select>
+    </div>
+    <div class="table-wrap">
+      <table id="itemTable" class="cards"><thead></thead><tbody></tbody></table>
+    </div>
+  </details>
+
+  <details class="panel">
+    <summary>Vorrat von Hand erfassen</summary>
+    <p class="hint">
+      Falls YATA nicht erreichbar ist oder du gerade selbst im Shop stehst: was du siehst,
+      zählt mehr als jede fremde Quelle. Jede Eingabe verbessert außerdem die Vorhersage.
+    </p>
+    <div class="grid">
+      <label class="field">Land
+        <select id="mCountry"></select>
+      </label>
+      <label class="field">Item
+        <input type="text" id="mItem" list="itemList" placeholder="Name oder ID" autocomplete="off">
+        <datalist id="itemList"></datalist>
+      </label>
+      <label class="field">Vorrat (Stück)
+        <input type="number" id="mQuantity" min="0" step="1" inputmode="numeric">
+      </label>
+      <label class="field">Preis dort ($)
+        <input type="number" id="mCost" min="1" step="1" inputmode="numeric">
+      </label>
+    </div>
+    <div class="actions">
+      <button id="addStockBtn" class="primary">Notieren</button>
+      <span id="manualMsg" class="hint"></span>
+    </div>
+  </details>
+
+  <details class="panel">
+    <summary>Reisezeiten</summary>
+    <p class="hint">
+      Standardzeiten ohne Perks, mal dem Faktor deines Fliegers. Stimmt eine Zeit bei dir
+      nicht, trag deine gemessene ein — die schlägt die Tabelle.
+    </p>
+    <div class="grid" id="timeGrid"></div>
+    <div class="actions">
+      <button id="saveTimesBtn">Zeiten speichern</button>
+      <button id="resetTimesBtn">Auf Tabelle zurücksetzen</button>
+      <span id="timeMsg" class="hint"></span>
+    </div>
+  </details>
+
+  <details class="panel">
+    <summary>Beobachtungen</summary>
+    <p class="hint" id="statsHint"></p>
+    <div class="table-wrap">
+      <table id="statsTable" class="cards"><thead></thead><tbody></tbody></table>
+    </div>
+    <div class="actions">
+      <button id="clearStockBtn">Beobachtungen löschen</button>
+    </div>
+  </details>
+</main>
+
+<div class="actionbar">
+  <span id="status"></span>
+</div>
+
+<script type="module" src="js/travelPage.js?v=9"></script>
+</body>
+</html>

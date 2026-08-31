@@ -1,6 +1,8 @@
 import { loadSettings, saveSettings } from './storage.js?v=9';
 import { fetchHealth, fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js?v=9';
 import { fetchKeyInfo } from './torn.js?v=9';
+import { fetchTravelStocks, YATA_BASE, YATA_TRAVEL_PATH } from './yata.js?v=9';
+import { countryName } from './travel.js?v=9';
 import { setStatus, fmtMoney, showVersion } from './ui.js?v=9';
 
 const reportEl = document.getElementById('report');
@@ -99,6 +101,44 @@ async function runAll() {
   setStatus('Fertig.', 'ok');
 }
 
+/**
+ * Der wichtigste Check dieser Seite, weil sein Ausgang nicht vorhersagbar
+ * war: YATA ist eine fremde Seite, und ob sie Browser-Zugriffe von hier
+ * erlaubt, entscheidet allein deren Server.
+ */
+async function testYata() {
+  reset();
+  emit(`Origin dieser Seite : ${location.origin}`);
+  emit(`Ziel                : ${YATA_BASE}${YATA_TRAVEL_PATH}`);
+  emit();
+  setStatus('Frage yata.yt…');
+
+  const ok = await check('GET yata.yt/api/v1/travel/export/', async () => {
+    const { countries, updated, unknown } = await fetchTravelStocks();
+    const lines = [`${countries.size} Länder mit Vorräten`];
+    for (const [code, items] of countries) {
+      const stamp = updated.get(code);
+      const withStock = items.filter((i) => Number.isFinite(i.quantity)).length;
+      lines.push(`      ${countryName(code).padEnd(16)} ${String(items.length).padStart(3)} Items, `
+        + `${withStock} mit Mengenangabe`
+        + (stamp ? `, Stand ${new Date(stamp).toLocaleTimeString('de-DE')}` : ', ohne Zeitstempel'));
+    }
+    if (unknown.length) lines.push(`      nicht zugeordnet: ${unknown.join(', ')}`);
+    return lines.join('\n');
+  });
+
+  emit();
+  if (ok) {
+    emit('YATA lässt sich vom Browser aus lesen — der Flugplaner bekommt seine Vorräte.');
+  } else {
+    emit('Kommt hier ein Netzwerkfehler und zeigt dieselbe URL in einem normalen Tab');
+    emit('trotzdem JSON, dann fehlt der CORS-Header für diese Origin. YATA entscheidet');
+    emit('das, nicht diese App. Der Flugplaner rechnet dann mit von Hand erfassten');
+    emit('Vorräten weiter — Preise und Zeiten bleiben davon unberührt.');
+  }
+  setStatus(ok ? 'YATA erreichbar.' : 'YATA nicht erreichbar — Details im Bericht.', ok ? 'ok' : 'error');
+}
+
 async function testTorn() {
   const settings = loadSettings();
   reset();
@@ -122,6 +162,7 @@ function init() {
   document.getElementById('weav3rKey').value = loadSettings().weav3rKey;
   document.getElementById('runAll').addEventListener('click', runAll);
   document.getElementById('testTorn').addEventListener('click', testTorn);
+  document.getElementById('testYata').addEventListener('click', testYata);
   document.getElementById('copyReport').addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(reportEl.textContent);

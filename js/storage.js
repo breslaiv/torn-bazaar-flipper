@@ -10,8 +10,17 @@ export function loadSettings() {
   return { ...DEFAULTS, ...stored };
 }
 
+/**
+ * Schreibt Einstellungen, ohne die nicht genannten zu verlieren.
+ *
+ * Das Formular des Scanners kennt nur seine eigenen Felder. Wurde sein
+ * Ergebnis direkt gespeichert, fielen alle uebrigen Schluessel heraus und
+ * standen beim naechsten Laden wieder auf der Vorgabe - der gemerkte
+ * Ledger-Zeitraum, die gemessenen Reisezeiten, die Kapazitaet. Deshalb wird
+ * ueber den gespeicherten Stand gelegt statt ihn zu ersetzen.
+ */
 export function saveSettings(settings) {
-  const clean = {};
+  const clean = { ...loadSettings() };
   for (const key of Object.keys(DEFAULTS)) {
     if (settings[key] !== undefined) clean[key] = settings[key];
   }

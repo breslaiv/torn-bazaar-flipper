@@ -182,6 +182,24 @@ pre.raw {
   gap: 10px;
   margin-bottom: 12px;
 }
+/* Bedienleiste, die auf jeder Breite sichtbar bleibt - im Gegensatz zur
+   .sortbar, die nur auf dem Handy die Spaltenkoepfe ersetzt. Auf dem Desktop
+   waeren Zeitraum, Aktualisieren und die Flug-Regler sonst schlicht weg. */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.controls label { color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* Ein Auswahlfeld, das auf die Breite seines Pfeils schrumpft, ist unbedienbar. */
+.controls select { flex: 1 1 9em; min-width: 9em; }
+/* Zahlenfelder brauchen keine halbe Zeile - sonst rutscht das naechste
+   Beschriftungspaar auseinander. */
+.controls input { flex: 0 1 6em; min-width: 5em; }
+.controls button { flex: 0 0 auto; }
+
 .sortbar label { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .sortbar select { flex: 1; min-width: 0; }
 .sortbar .dir { width: 46px; text-align: center; font-size: 16px; }
