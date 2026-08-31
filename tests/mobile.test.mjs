@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 
-const PAGES = ['./index.html', './diagnose.html'];
+const PAGES = ['./index.html', './diagnose.html', './ledger.html'];
 const html = Object.fromEntries(PAGES.map((p) => [p, readFileSync(p, 'utf8')]));
 const css = readFileSync('./css/app.css', 'utf8');
 
@@ -38,28 +38,28 @@ test('Eingabefelder sind auf dem Handy mindestens 16px gross', () => {
 
 test('die Tabelle wird auf dem Handy zu Karten', () => {
   const mobile = css.split('@media (max-width: 720px)')[1];
-  assert.match(mobile, /#results thead \{ display: none; \}/);
-  assert.match(mobile, /#results td::before \{\s*content: attr\(data-label\)/);
+  assert.match(mobile, /.cards thead \{ display: none; \}/);
+  assert.match(mobile, /.cards td::before \{\s*content: attr\(data-label\)/);
   // Verschachteltes Scrollen ist auf iOS unangenehm - die Seite scrollt selbst.
   assert.match(mobile, /\.table-wrap \{ max-height: none; overflow: visible; \}/);
 });
 
 test('die Karte ist zweispaltig statt zehn Zeilen untereinander', () => {
   const mobile = css.split('@media (max-width: 720px)')[1];
-  const tr = mobile.match(/#results tr \{([^}]+)\}/);
+  const tr = mobile.match(/.cards tr \{([^}]+)\}/);
   assert.ok(tr, 'keine Regel fuer die Kartenzeile');
   assert.match(tr[1], /display:\s*grid/);
   assert.match(tr[1], /grid-template-columns:\s*1fr 1fr/);
   // Der Itemname bleibt Ueberschrift ueber die volle Breite.
-  assert.match(mobile, /#results td:first-child \{[^}]*grid-column: 1 \/ -1/);
+  assert.match(mobile, /.cards td:first-child \{[^}]*grid-column: 1 \/ -1/);
   // Netto wiederholt den Ankauf, solange nichts abgezogen wird.
-  assert.match(mobile, /#results td\.redundant \{ display: none; \}/);
+  assert.match(mobile, /.cards td\.redundant \{ display: none; \}/);
 });
 
 test('der Gegencheck-Link ist ein brauchbares Tippziel', () => {
   // Um den blossen Itemnamen gelegt waere er rund 70x20px gross.
   const mobile = css.split('@media (max-width: 720px)')[1];
-  const rule = mobile.match(/#results td:first-child \.item-link \{([^}]+)\}/);
+  const rule = mobile.match(/.cards td:first-child \.item-link \{([^}]+)\}/);
   assert.ok(rule, 'keine Mobile-Regel fuer den Item-Link');
   assert.match(rule[1], /display:\s*flex/);
   assert.match(rule[1], /min-height:\s*36px/);

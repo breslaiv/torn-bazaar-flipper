@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14161a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Bazaar Flip">
+<meta name="format-detection" content="telephone=no">
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'none';
+  script-src 'self';
+  style-src 'self';
+  img-src 'self' data:;
+  manifest-src 'self';
+  connect-src https://weav3r.dev https://api.torn.com;
+  base-uri 'none';
+  form-action 'none'">
+<title>Ledger &mdash; Torn Bazaar Flipper</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header>
+  <h1>Ledger</h1>
+  <nav>
+    <a href="index.html">Scanner</a>
+    <a href="diagnose.html">API-Diagnose</a>
+  </nav>
+</header>
+
+<main>
+  <p class="note" id="backupHint" hidden></p>
+
+  <div class="sortbar">
+    <label class="field" for="periodSelect">Zeitraum</label>
+    <select id="periodSelect">
+      <option value="0">alles</option>
+      <option value="7">7 Tage</option>
+      <option value="30">30 Tage</option>
+      <option value="90">90 Tage</option>
+    </select>
+  </div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="panel">
+    <h2>Offene Positionen (<span id="openCount">0</span>)</h2>
+    <p class="hint">Gekauft, aber noch nicht verkauft — hier liegt dein Kapital.</p>
+    <div class="table-wrap">
+      <table id="openTable" class="cards"><thead></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Abgeschlossene Verkäufe (<span id="saleCount">0</span>)</h2>
+    <div class="table-wrap">
+      <table id="salesTable" class="cards"><thead></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <details class="panel" id="byItemPanel">
+    <summary>Profit nach Item</summary>
+    <div class="table-wrap">
+      <table id="byItemTable" class="cards"><thead></thead><tbody></tbody></table>
+    </div>
+  </details>
+
+  <details class="panel">
+    <summary>Aus dem Torn-Log importieren</summary>
+    <p class="hint">
+      Liest dein persönliches Torn-Log und legt Käufe und Verkäufe an. Braucht einen Key
+      mit mindestens <strong>Limited Access</strong> — ein Public-Only-Key reicht dafür
+      nicht. Der Key steht in den Scanner-Einstellungen und bleibt im Browser.
+    </p>
+    <div class="grid">
+      <label class="field">Einträge lesen (max.)
+        <input type="number" id="logMax" value="300" min="100" max="2000" step="100">
+        <span class="hint">100 pro Anfrage, gedrosselt auf 80/Minute.</span>
+      </label>
+    </div>
+    <div class="actions">
+      <button id="importLogBtn" class="primary">Log lesen und prüfen</button>
+      <button id="applyImportBtn" disabled>Gefundene übernehmen</button>
+    </div>
+    <pre class="raw" id="importReport" hidden></pre>
+  </details>
+
+  <details class="panel">
+    <summary>Eintrag von Hand erfassen</summary>
+    <p class="hint">Für alles, was der Log nicht hergibt — etwa Trades mit mehreren Items.</p>
+    <div class="grid">
+      <label class="field">Art
+        <select id="mKind">
+          <option value="buy">Kauf</option>
+          <option value="sell">Verkauf</option>
+        </select>
+      </label>
+      <label class="field">Item-ID
+        <input type="number" id="mItemId" min="1" step="1">
+      </label>
+      <label class="field">Itemname
+        <input type="text" id="mItemName" placeholder="optional">
+      </label>
+      <label class="field">Menge
+        <input type="number" id="mQuantity" min="1" step="1" value="1">
+      </label>
+      <label class="field">Preis pro Stück ($)
+        <input type="number" id="mUnitPrice" min="0" step="1">
+      </label>
+      <label class="field">Datum
+        <input type="date" id="mDate">
+      </label>
+    </div>
+    <div class="actions">
+      <button id="addManualBtn" class="primary">Eintrag anlegen</button>
+      <span id="manualMsg" class="hint"></span>
+    </div>
+  </details>
+
+  <details class="panel">
+    <summary>Sicherung und Verwaltung</summary>
+    <p class="hint">
+      Der Ledger liegt im <code>localStorage</code> dieses Browsers. iOS Safari räumt den
+      bei längerer Nichtnutzung weg — exportier ihn regelmäßig, sonst ist die Historie
+      irgendwann still verschwunden.
+    </p>
+    <div class="actions">
+      <button id="exportBtn" class="primary">Als JSON exportieren</button>
+      <button id="importFileBtn">JSON einlesen</button>
+      <button id="clearBtn">Ledger leeren</button>
+    </div>
+    <label class="field mt">JSON einfügen
+      <textarea id="importText" rows="4" placeholder="Inhalt einer Exportdatei hier einfügen"></textarea>
+    </label>
+    <div class="actions">
+      <button id="applyTextBtn">Eingefügtes übernehmen</button>
+      <span id="backupMsg" class="hint"></span>
+    </div>
+  </details>
+</main>
+
+<div class="actionbar">
+  <span id="status"></span>
+</div>
+
+<script type="module" src="js/ledgerPage.js"></script>
+</body>
+</html>

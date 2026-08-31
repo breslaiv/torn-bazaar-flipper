@@ -8,6 +8,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULTS } from '../js/config.js';
 
+const PAGES = ['./index.html', './diagnose.html', './ledger.html'];
 const SKIP_DIRS = new Set(['.git', 'node_modules']);
 const TEXT_EXT = /\.(js|mjs|cjs|json|html|css|md|yml|yaml|txt)$/;
 
@@ -65,7 +66,7 @@ test('keine Umgebungs- oder Zugangsdatei ist eingecheckt', () => {
 test('die Seiten erlauben Verbindungen nur zu Torn und weav3r', () => {
   // Ohne diese Einschraenkung koennte eingeschleuster Code den Key an einen
   // beliebigen Host schicken. connect-src ist die Grenze, die das verhindert.
-  for (const page of ['./index.html', './diagnose.html']) {
+  for (const page of PAGES) {
     const html = readFileSync(page, 'utf8');
     const csp = html.match(/http-equiv="Content-Security-Policy"\s+content="([^"]+)"/);
     assert.ok(csp, `${page}: keine Content-Security-Policy gesetzt`);
@@ -83,7 +84,7 @@ test('die Seiten erlauben Verbindungen nur zu Torn und weav3r', () => {
 
 test('die Seiten enthalten keine Inline-Scripts oder Inline-Styles', () => {
   // Beides waere unter der CSP wirkungslos und wuerde still kaputtgehen.
-  for (const page of ['./index.html', './diagnose.html']) {
+  for (const page of PAGES) {
     const html = readFileSync(page, 'utf8');
     assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)/i, `${page}: Inline-<script> gefunden`);
     assert.doesNotMatch(html, /\sstyle="/i, `${page}: Inline-style-Attribut gefunden`);

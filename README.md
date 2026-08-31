@@ -95,6 +95,61 @@ Angenommen werden nur `http://`- und `https://`-Adressen. Ein Muster wie `javasc
 zwar aus dem eigenen `localStorage`, landet aber trotzdem nicht in einem `href`.
 
 
+## Ledger
+
+`ledger.html` führt Buch über Käufe, Verkäufe und den Profit dazwischen.
+
+**Gespeichert werden Ereignisse, keine fertigen Trades.** Ein Kauf wird oft in mehreren
+Portionen verkauft, ein Verkauf bedient sich aus mehreren Käufen, und dazwischen liegt Ware
+im Bestand — das lässt sich nur als Ereignisstrom abbilden. Zugeordnet wird nach **FIFO**:
+der älteste Kauf deckt den nächsten Verkauf. Das entspricht der Reihenfolge, in der man Ware
+tatsächlich losschlägt, und bleibt nachvollziehbar, wenn man eine Zeile im Nachhinein prüft.
+
+Daraus fallen zwei Listen an:
+
+- **Offene Positionen** — gekauft, noch nicht verkauft. Zeigt, wo dein Kapital liegt. Sie
+  ignorieren den Zeitraumfilter: ein Kauf von vor 90 Tagen bindet immer noch Geld.
+- **Abgeschlossene Verkäufe** — je Verkauf Einstand, Erlös, Profit und Marge.
+
+**Verkäufe ohne Einstand fließen nicht in den Profit.** Wer Ware verkauft, die vor dem
+ersten Import gekauft wurde, hätte sonst reinen Fantasiegewinn in der Bilanz. Diese Menge
+wird stattdessen als eigene Kachel *Ohne Einstand* ausgewiesen.
+
+### Import aus dem Torn-Log
+
+Liest `/user/log` und legt Käufe und Verkäufe an. Braucht einen Key mit mindestens
+**Limited Access** — ein Public-Only-Key reicht dafür nicht, und Torn antwortet dann mit
+Fehler 16, was die App im Klartext meldet. Wiederholte Importe verdoppeln nichts: jeder
+Log-Eintrag trägt seine Referenz mit.
+
+**Die Zuordnung ist nicht verifiziert.** Die genauen Titel und Datenfelder der Log-Einträge
+liessen sich ohne Key und ohne Zugriff auf `api.torn.com` nicht nachschlagen. Deshalb:
+
+1. Die Zuordnung steckt in `RULES` in `js/tornlog.js` — einer kurzen Tabelle aus
+   Stichwörtern auf Kategorie und Titel. Stimmt ein Titel nicht, ist das eine Zeile.
+2. Der Import zeigt **vor** dem Übernehmen einen Bericht: wie viele Einträge erkannt wurden,
+   was aus welchem Grund liegen blieb, welche Kategorien dein Log überhaupt enthält, und ein
+   Beispiel eines unerkannten Eintrags im Rohformat.
+
+Ein Import, der nichts erkennt, ist damit kein Rätsel, sondern ein Bericht — aus dem sich
+die Regeln vervollständigen lassen. Schick den Bericht her, dann sitzt die Zuordnung.
+
+Trades mit **mehreren Items** werden bewusst nicht übernommen: ohne Einzelpreise liesse sich
+die Summe nicht fair aufteilen. Sie erscheinen im Bericht und gehören von Hand erfasst.
+
+Itemnamen holt der Import aus dem öffentlichen weav3r-Katalog (ein Request, kein Key) und
+trägt sie auch bei früher importierten Zeilen nach. Scheitert das, heissen die Zeilen
+`Item 206` — kein Grund, den Import abzubrechen.
+
+### Sicherung
+
+Der Ledger liegt im `localStorage`. **iOS Safari räumt den bei längerer Nichtnutzung weg** —
+für eine Historie ist das ein echtes Risiko, nicht nur eine Fussnote. Deshalb Export und
+Import als JSON, und ein Hinweis oben auf der Seite, solange nie oder lange nicht exportiert
+wurde. Der Export läuft über eine Blob-URL; dass die unter der strengen CSP durchgeht, ist
+im Browser gegengeprüft.
+
+
 ## Sicherheit der API-Keys
 
 GitHub Pages verlangt im Free-Tier ein öffentliches Repository. **Das macht die Keys nicht
@@ -229,6 +284,12 @@ js/scan.js          Ablauf eines Scans, abbrechbar, mit Fortschrittsmeldung
 js/storage.js       localStorage
 js/ui.js            Spaltendefinition, Tabelle/Karten, Sortierung
 js/app.js           Verdrahtung, Fortschritt
+ledger.html         Buchführung über Käufe, Verkäufe und Profit
+js/ledger.js        Ereignismodell, FIFO-Zuordnung, Kennzahlen
+js/ledgerStore.js   localStorage, Export und Import
+js/tornlog.js       Import aus /user/log samt Bericht über Unerkanntes
+js/table.js         Tabellenbau mit data-label für die Kartenansicht
+js/ledgerPage.js    Verdrahtung der Ledger-Seite
 tools/make-icon.py  erzeugt icon-180.png fuer den iOS-Home-Screen
 tests/              node --test, ohne Abhängigkeiten (inkl. Secret-Scan)
 ```
@@ -242,9 +303,9 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-84 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
-Markup, Sortierung und Link-Erzeugung sowie die Key-, CSP-, Workflow- und
-Mobile-Prüfungen aus den Abschnitten oben.
+130 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
+Markup, Sortierung, Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung und Persistenz sowie
+die Key-, CSP-, Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
 
 Der Sortier-Controller wird gegen einen kleinen DOM-Stub getestet (`tests/sorting.test.mjs`),
 weil dort ein Fehler saß, den die reine Sortierfunktion nicht zeigen konnte.
