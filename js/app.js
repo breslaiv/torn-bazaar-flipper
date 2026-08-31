@@ -1,9 +1,9 @@
-import { DEFAULTS } from './config.js?v=9';
-import { loadSettings, saveSettings, clearSettings, hasSavedSettings } from './storage.js?v=9';
-import { runFlipScan, runDollarScan, verifyWithTorn } from './scan.js?v=9';
+import { DEFAULTS } from './config.js?v=10';
+import { loadSettings, saveSettings, clearSettings, hasSavedSettings } from './storage.js?v=10';
+import { runFlipScan, runDollarScan, verifyWithTorn } from './scan.js?v=10';
 import {
   renderRows, renderHead, setStatus, installSorting, fmtMoneyShort, showVersion,
-} from './ui.js?v=9';
+} from './ui.js?v=10';
 
 const NUMERIC_FIELDS = new Set([
   'sellFactor', 'marketFeePct', 'prescreenPct', 'maxCandidates', 'listingsPerItem',

@@ -511,22 +511,51 @@ Die dokumentierte Form:
 
 ### Vorhersage
 
-Ein Vorrat bewegt sich in zwei Richtungen: Spieler kaufen ihn leer, und in festen Abständen
-legt der Shop nach. Beides lässt sich nicht ausrechnen, nur beobachten. Jeder Abruf und jede
-Eingabe legt deshalb eine Messung ab, und aus der Reihe entstehen zwei Größen:
+Ein Vorrat bewegt sich in zwei Richtungen: Spieler kaufen ihn leer, und in Abständen legt der
+Shop nach. Beides lässt sich nicht ausrechnen, nur beobachten. Jeder Abruf und jede Eingabe
+legt deshalb eine Messung ab, und aus der Reihe entstehen zwei Größen:
 
 - **Abverkauf** in Stück pro Minute, gemessen an fallenden Mengen.
 - **Nachschub**: wie viel ein Sprung nach oben bringt, und in welchem Abstand solche Sprünge
-  passieren.
+  passieren. Die Menge ist eine Untergrenze — zwischen zwei Messungen wurde auch wieder gekauft.
 
 Genommen wird jeweils der **Median**, nicht der Durchschnitt — ein einzelner Großeinkauf zöge
 einen Mittelwert so weit, dass die Vorhersage für alle folgenden Flüge unbrauchbar wäre.
 Gerechnet wird ab der letzten Messung, nicht ab jetzt: zwischen beiden liegt oft eine Stunde.
 
+**Neuere Messungen wiegen mehr.** Der Abverkauf schwankt über den Tag — nachts steht die Ware,
+abends ist sie in Minuten weg —, und ein Median über eine Woche ergäbe eine Zahl, die zu keiner
+Tageszeit stimmt. Das Gewicht halbiert sich alle sechs Stunden. Gemessen wird dabei gegen die
+jüngste Messung *derselben Reihe*, nicht gegen die Uhr: sonst fällt bei einer Reihe von gestern
+jedes Gewicht auf null und die Schätzung wäre leer statt alt.
+
+**Ein Bereich statt einer Zahl, und die Antwort auf die eigentliche Frage.** „6 Stück" klingt
+nach Wissen; die Entscheidung lautet aber *reicht es für meine Plätze?* Deshalb steht dort
+`244–364` — die Spanne zwischen dem langsamsten und dem schnellsten beobachteten Tempo — plus
+`100% für 19`. Diese Wahrscheinlichkeit wird über die beobachteten Tempi selbst gerechnet, nicht
+über eine angenommene Verteilung: jedes gemessene Tempo ist ein Szenario. Mit wenigen Messungen
+kommen dabei grobe Werte heraus — ehrlicher als eine glatte Kurve über drei Punkte.
+
+### Die Vorhersage prüft sich selbst
+
+Jede Reihe wird gegen ihre eigene Vergangenheit getestet: aus dem Anfang vorhersagen, mit dem
+nächsten echten Wert vergleichen. Das kostet keinen zusätzlichen Speicher — die Antworten stehen
+schon in der Reihe — und liefert zwei Zahlen, die im Panel *Beobachtungen* stehen:
+
+- **Fehler**: um wie viel Stück die eigenen Vorhersagen im Median danebenlagen.
+- **Bereich traf**: wie oft der angegebene Bereich den später gemessenen Wert enthielt.
+
+Daraus kommt die Güte — gemessen, nicht geschätzt. *brauchbar* heißt: mindestens drei bestandene
+Kontrollen, typischer Fehler unter einem Viertel der vorhergesagten Menge, **und** der Bereich
+enthielt den echten Wert in mindestens der Hälfte der Fälle. Genau diese letzte Bedingung fehlte
+zuerst: im Browsertest stand „brauchbar" an einer Reihe, deren Bereich in *keinem* einzigen Fall
+getroffen hatte. Ist der gemessene Fehler größer, als die Streuung der Tempi hergibt, weitet er
+zusätzlich den angezeigten Bereich — ein Bereich, den die eigene Vergangenheit widerlegt hat,
+wäre Scheingenauigkeit.
+
 **Was die App nicht gesehen hat, sagt sie nicht vorher.** Unter zwei Messungen steht dort
-*zu wenig Daten*, und jede Schätzung trägt ihre Güte sichtbar mit sich: *grob*, solange kein
-Nachschub beobachtet wurde oder die Daten alt sind, sonst *brauchbar*. Eine erfundene Zahl ist
-hier besonders teuer — man fliegt drei Stunden und steht vor einem leeren Regal.
+*zu wenig Daten*. Eine erfundene Zahl ist hier besonders teuer — man fliegt drei Stunden und
+steht vor einem leeren Regal.
 
 ### Reisezeiten
 
@@ -606,7 +635,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-272 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
+288 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
 Parallelität und Abbruch, Zeitstempel-Deutung, Scan-Ablauf, Markup, Sortierung,
 Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status, Bestandsbewertung, Flugplanung, Vorratsvorhersage und Persistenz sowie die Key-, CSP-,
 Workflow- und Mobile-Prüfungen aus den Abschnitten oben.

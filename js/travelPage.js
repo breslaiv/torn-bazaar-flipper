@@ -1,19 +1,20 @@
 // Verdrahtung der Flugseite.
 
-import { loadSettings, saveSettings } from './storage.js?v=9';
-import { fetchMarketplace } from './weav3r.js?v=9';
+import { loadSettings, saveSettings } from './storage.js?v=10';
+import { fetchMarketplace } from './weav3r.js?v=10';
 import {
   fetchTravelStocks, parseTravelExport, travelUrl, YataError, YATA_URL,
-} from './yata.js?v=9';
+} from './yata.js?v=10';
 import {
   COUNTRIES, AIRSTRIPS, countryName, oneWayMinutes, planTrips, planCountry,
-} from './travel.js?v=9';
+} from './travel.js?v=10';
 import {
   loadStock, saveStock, recordSnapshot, seriesFor, predict, estimate,
-} from './travelStock.js?v=9';
-import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=9';
-import { renderTable } from './table.js?v=9';
-import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=9';
+  chanceAtLeast, backtest,
+} from './travelStock.js?v=10';
+import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=10';
+import { renderTable } from './table.js?v=10';
+import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=10';
 
 let prices = new Map();
 let stocks = new Map();      // code -> [{itemId, itemName, cost, quantity}]
@@ -31,16 +32,40 @@ function settings() {
 
 // ---------- Vorhersage ----------
 
-/** Vorrat bei Landung, mit Herkunft der Zahl. */
+/** Vorrat bei Landung, mit Bereich und Chance auf die eigene Kapazitaet. */
 function arrival(code, item, minutes) {
   const series = seriesFor(observations, code, item.itemId);
   const p = predict(series, minutes ?? 0);
-  return { ...p, now: item.quantity };
+  const needed = Math.max(1, Number(settings().travelCapacity) || 1);
+  return {
+    ...p,
+    needed,
+    chance: chanceAtLeast(series, Math.min(needed, item.quantity ?? needed), minutes ?? 0),
+    now: item.quantity,
+  };
 }
 
 function confidenceTag(p) {
   if (p.confidence === 'unbekannt') return '<span class="tag">zu wenig Daten</span>';
   return `<span class="tag${p.confidence === 'grob' ? ' warn' : ''}">${escapeHtml(p.confidence)}</span>`;
+}
+
+/** "12–38" statt einer Zahl, die Genauigkeit vortaeuscht. */
+function rangeText(p) {
+  if (p.quantity === null) return '<span class="muted">?</span>';
+  return p.low === p.high
+    ? escapeHtml(fmtUnits.format(p.quantity))
+    : `${escapeHtml(fmtUnits.format(p.low))}–${escapeHtml(fmtUnits.format(p.high))}`;
+}
+
+/**
+ * Die eigentliche Auskunft: reicht es fuer die eigene Kapazitaet? Unter 50%
+ * ist das eine Warnung wert - drei Stunden Flug fuer ein leeres Regal.
+ */
+function chanceTag(p) {
+  if (p.chance === null || p.chance === undefined) return '';
+  const pct = Math.round(p.chance * 100);
+  return `<span class="tag${pct < 50 ? ' warn' : ''}">${pct}% für ${fmtUnits.format(p.needed)}</span>`;
 }
 
 // ---------- Tabellen ----------
@@ -89,10 +114,7 @@ const TRIP_COLUMNS = [
       const p = arrival(t.code, t.best, t.oneWayMinutes);
       const now = Number.isFinite(t.best.quantity) ? `${fmtUnits.format(t.best.quantity)} jetzt` : 'Vorrat unbekannt';
       return {
-        html: (p.quantity === null
-          ? `<span class="muted">?</span>`
-          : escapeHtml(fmtUnits.format(p.quantity)))
-          + confidenceTag(p)
+        html: rangeText(p) + chanceTag(p) + confidenceTag(p)
           + `<span class="tag">${escapeHtml(now)}</span>`,
       };
     },
@@ -132,10 +154,29 @@ const STAT_COLUMNS = [
     label: 'Nachschub',
     cell: (r) => ({
       text: r.e.restockAmount
-        ? `${fmtUnits.format(r.e.restockAmount)} alle ${r.e.restockIntervalMinutes
+        ? `${fmtUnits.format(Math.round(r.e.restockAmount))} alle ${r.e.restockIntervalMinutes
           ? `${Math.round(r.e.restockIntervalMinutes)} min` : '?'}`
         : '—',
     }),
+  },
+  {
+    key: 'error',
+    // Die Zahl, an der sich das Modell messen lassen muss: um wieviel lagen
+    // seine eigenen Vorhersagen daneben, gegen die spaeter gemessene Menge?
+    label: 'Fehler',
+    cell: (r) => (r.a.checks
+      ? {
+        text: `±${fmtUnits.format(Math.round(r.a.medianAbsError))} (${r.a.checks}×)`,
+        cls: r.a.medianAbsError > Math.max(5, r.e.latest * 0.25) ? 'warn-text' : '',
+      }
+      : { text: 'noch ungeprüft' }),
+  },
+  {
+    key: 'coverage',
+    // Wie oft der angegebene Bereich den spaeter gemessenen Wert enthielt.
+    // Unter der Haelfte heisst: die Vorhersage ist eine Richtung, kein Wert.
+    label: 'Bereich traf',
+    cell: (r) => (r.a.coverage === null ? { text: '—' } : { text: fmtPct(r.a.coverage * 100) }),
   },
 ];
 
@@ -195,15 +236,26 @@ function renderStats() {
     const name = (stocks.get(code) || []).find((i) => i.itemId === itemId)?.itemName
       || prices.get(itemId)?.itemName
       || `Item ${itemId}`;
-    rows.push({ code, itemId, itemName: name, e });
+    rows.push({ code, itemId, itemName: name, e, a: backtest(observations[key]) });
   }
   rows.sort((a, b) => b.e.samples - a.e.samples);
   renderTable('statsTable', STAT_COLUMNS, rows, {
     empty: 'Noch keine Reihe mit mehr als einer Messung.',
   });
+  // Die Selbstkontrolle über alle Reihen: eine Zahl, an der man sieht, ob man
+  // der Vorhersage überhaupt trauen darf.
+  const geprueft = rows.filter((r) => r.a.checks);
+  const checks = geprueft.reduce((s, r) => s + r.a.checks, 0);
+  const fehler = geprueft.length
+    ? geprueft.reduce((s, r) => s + r.a.medianAbsError, 0) / geprueft.length
+    : null;
+
   document.getElementById('statsHint').textContent = rows.length
-    ? 'Aus diesen Reihen entsteht die Vorhersage. Zwei Punkte reichen für eine grobe Richtung; '
-      + 'brauchbar wird sie, sobald auch ein Nachschub dabei war.'
+    ? 'Aus diesen Reihen entsteht die Vorhersage. Die Spalte „Fehler" prüft sie gegen sich '
+      + 'selbst: aus dem Anfang der Reihe vorhersagen, mit dem nächsten echten Wert vergleichen.'
+      + (checks
+        ? ` Bisher ${checks} Kontrollen, im Schnitt ${Math.round(fehler)} Stück daneben.`
+        : ' Ab der dritten Messung je Reihe beginnt das.')
     : 'Jedes Laden der Vorräte und jede Eingabe von Hand legt hier eine Messung ab.';
 }
 

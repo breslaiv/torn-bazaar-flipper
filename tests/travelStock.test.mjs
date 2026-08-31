@@ -12,7 +12,9 @@ function fakeStorage() {
 globalThis.localStorage = fakeStorage();
 
 const {
-  recordSnapshot, estimate, predict, seriesFor, loadStock, saveStock, MAX_SAMPLES,
+  recordSnapshot, estimate, predict, predictRange, chanceAtLeast, backtest,
+  weightAt, weightedQuantile, seriesFor, loadStock, saveStock,
+  MAX_SAMPLES, HALF_LIFE_MINUTES,
 } = await import('../js/travelStock.js');
 
 const MIN = 60000;
@@ -79,16 +81,17 @@ test('mehr Vorrat als je gesehen sagt die App nicht vorher', () => {
   assert.ok(p.quantity <= 400, `${p.quantity} liegt ueber dem groessten gesehenen Bestand`);
 });
 
-test('Zuversicht steigt erst mit Messungen und beobachtetem Nachschub', () => {
-  const duenn = predict(series([[0, 100], [10, 90]]), 10, T0 + 10 * MIN);
-  assert.equal(duenn.confidence, 'grob');
+test('brauchbar wird eine Vorhersage erst durch bestandene Kontrollen', () => {
+  // Zwei Messungen ergeben eine Zahl, aber keine Grundlage, ihr zu trauen.
+  assert.equal(predict(series([[0, 100], [10, 90]]), 10, T0 + 10 * MIN).confidence, 'grob');
 
-  const dicht = series([[0, 100], [10, 80], [20, 60], [25, 300], [35, 260], [45, 220], [50, 300]]);
-  const gut = predict(dicht, 10, T0 + 50 * MIN);
+  const gleichmaessig = series(Array.from({ length: 8 }, (_, i) => [i * 10, 500 - i * 20]));
+  const gut = predict(gleichmaessig, 10, T0 + 70 * MIN);
   assert.equal(gut.confidence, 'brauchbar');
+  assert.ok(gut.accuracy.coverage >= 0.5);
 
-  // Alte Daten sind keine Grundlage mehr, egal wie viele es sind.
-  assert.equal(predict(dicht, 10, T0 + 50 * MIN + 5 * 3600e3).confidence, 'grob');
+  // Alte Daten sind keine Grundlage mehr, egal wie gut das Modell passte.
+  assert.equal(predict(gleichmaessig, 10, T0 + 70 * MIN + 5 * 3600e3).confidence, 'grob');
 });
 
 test('Beobachtungen werden gesammelt, nicht geflutet', () => {
@@ -141,4 +144,163 @@ test('kaputter Speicher ergibt eine leere Sammlung', () => {
   assert.deepEqual(loadStock(), {});
   saveStock({ 'mex:1': [[T0, 5]] });
   assert.deepEqual(loadStock(), { 'mex:1': [[T0, 5]] });
+});
+
+// ---------- Gewichtung ----------
+
+test('juengere Messungen wiegen mehr, aeltere verlieren nach Halbwertszeit', () => {
+  const now = T0 + 100 * MIN;
+  assert.equal(weightAt(now, now), 1);
+  assert.ok(Math.abs(weightAt(now - HALF_LIFE_MINUTES * MIN, now) - 0.5) < 1e-12);
+  assert.ok(weightAt(now - 2 * HALF_LIFE_MINUTES * MIN, now) < 0.26);
+});
+
+test('eine alte Reihe wird alt gewichtet, nicht auf null', () => {
+  // Der Fehler, den die Umstellung behoben hat: gegen die Uhr gemessen fiel
+  // bei einer Reihe von gestern jedes Gewicht auf null - und die Schaetzung
+  // war leer statt alt.
+  const gestern = series([[0, 100], [10, 80], [20, 60]]);
+  const e = estimate(gestern, T0 + 3 * 24 * 60 * MIN);
+  assert.equal(e.drainPerMinute, 2, 'die Reihe sagt weiterhin 2/min');
+});
+
+test('das gewichtete Quantil folgt den Gewichten, nicht der Anzahl', () => {
+  // Fuenf alte Messungen mit Tempo 1 gegen eine frische mit Tempo 10:
+  // ungewichtet gewaenne die Mehrheit, gewichtet zaehlt die Gegenwart mit.
+  const samples = [
+    ...Array.from({ length: 5 }, () => ({ value: 1, weight: 0.05 })),
+    { value: 10, weight: 1 },
+  ];
+  assert.equal(weightedQuantile(samples, 0.5), 10);
+  assert.equal(weightedQuantile([], 0.5), null);
+  assert.equal(weightedQuantile([{ value: 5, weight: 0 }], 0.5), null, 'gewichtslos ist keine Aussage');
+});
+
+test('das Tempo von heute schlaegt das von vorgestern', () => {
+  // Abends leert sich das Regal schneller als nachts. Ein Median ueber alles
+  // ergaebe eine Zahl, die zu keiner Tageszeit stimmt.
+  const langsamDannSchnell = series([
+    [0, 500], [60, 490], [120, 480], [180, 470],   // 1/6 pro Minute
+    [1200, 400], [1260, 340], [1320, 280],          // 1/min, zuletzt
+  ]);
+  const e = estimate(langsamDannSchnell, T0 + 1320 * MIN);
+  assert.ok(e.drainPerMinute > 0.5, `zu traege gewichtet: ${e.drainPerMinute}`);
+});
+
+// ---------- Bereich und Wahrscheinlichkeit ----------
+
+test('der Bereich spannt langsamen gegen schnellen Abverkauf', () => {
+  // Mal 1/min, mal 7/min: der Bereich muss beide Tempi umfassen. Dass die
+  // mittlere Zahl dabei auf einem Rand liegen kann, ist kein Fehler - bei
+  // zwei gleich haeufigen Tempi gibt es keine Mitte dazwischen.
+  const s = series([[0, 500], [10, 490], [20, 420], [30, 410], [40, 340]]);
+  const p = predictRange(s, 30, T0 + 40 * MIN);
+  assert.ok(p.low <= p.quantity && p.quantity <= p.high, `${p.low} ≤ ${p.quantity} ≤ ${p.high}`);
+  assert.ok(p.high - p.low >= 100, 'zwei so verschiedene Tempi muessen einen Bereich ergeben');
+  assert.equal(p.low, 130, 'schnellstes Tempo: 340 minus 30 Minuten à 7');
+  assert.equal(p.high, 310, 'langsamstes: 340 minus 30 Minuten à 1');
+});
+
+test('ohne Beobachtung gibt es weder Zahl noch Bereich', () => {
+  const p = predict(series([[0, 100]]), 60, T0);
+  assert.equal(p.quantity, null);
+  assert.equal(p.low, null);
+  assert.equal(p.confidence, 'unbekannt');
+  assert.equal(chanceAtLeast(series([[0, 100]]), 5, 60, T0), null);
+});
+
+test('die Chance auf die eigene Kapazitaet ist die eigentliche Auskunft', () => {
+  // Gleichmaessiger Abverkauf: was rechnerisch reicht, reicht in allen
+  // beobachteten Szenarien - und was nicht reicht, in keinem.
+  const s = series([[0, 100], [10, 90], [20, 80], [30, 70]]);
+  const now = T0 + 30 * MIN;
+  assert.equal(chanceAtLeast(s, 5, 10, now), 1, '60 Stueck erwartet, 5 gesucht');
+  assert.equal(chanceAtLeast(s, 80, 10, now), 0, 'so viel wird es sicher nicht');
+});
+
+test('uneinheitliches Tempo ergibt eine Chance zwischen 0 und 1', () => {
+  // Mal 1/min, mal 9/min: ob 40 Stueck reichen, haengt am Tempo - und genau
+  // das soll die Zahl sagen, statt sich auf eines festzulegen.
+  const s = series([[0, 100], [10, 90], [20, 10], [30, 100], [40, 90]]);
+  const chance = chanceAtLeast(s, 40, 10, T0 + 40 * MIN);
+  assert.ok(chance > 0 && chance < 1, `${chance} sollte dazwischen liegen`);
+});
+
+// ---------- Selbstkontrolle ----------
+
+test('backtest sagt aus der Vergangenheit die Gegenwart vorher', () => {
+  // Eine perfekt gleichmaessige Reihe muss die App fehlerfrei treffen -
+  // sonst stimmt etwas an der Rechnung nicht.
+  const gleichmaessig = series(Array.from({ length: 8 }, (_, i) => [i * 10, 500 - i * 20]));
+  const a = backtest(gleichmaessig);
+  assert.equal(a.checks, 6);
+  assert.equal(a.medianAbsError, 0);
+  assert.equal(a.coverage, 1);
+});
+
+test('ein einzelner Einbruch zeigt sich im groessten Fehler', () => {
+  // Der Median bleibt klein - das ist sein Sinn. Aufdecken muss ihn deshalb
+  // der schlechteste Fall, und der wird mitgefuehrt.
+  const einbruch = series([[0, 500], [10, 480], [20, 460], [30, 10], [40, 5]]);
+  const a = backtest(einbruch);
+  assert.ok(a.checks >= 2);
+  assert.ok(a.worstAbsError > 300, `groesster Fehler ${a.worstAbsError}`);
+  assert.ok(a.coverage < 1, 'nicht jeder Wert lag im Bereich');
+});
+
+test('ein dauerhaft unberechenbares Regal ergibt einen grossen Median-Fehler', () => {
+  // Hin und her ohne Muster: hier irrt das Modell nicht einmal, sondern
+  // staendig - und dann darf die Guete das nicht verschweigen.
+  const zickzack = series([[0, 400], [10, 20], [20, 380], [30, 30], [40, 390], [50, 25], [60, 400]]);
+  const a = backtest(zickzack);
+  assert.ok(a.medianAbsError > 100, `Median-Fehler ${a.medianAbsError}`);
+  assert.equal(predict(zickzack, 10, T0 + 60 * MIN).confidence, 'grob');
+});
+
+test('unter drei Messungen gibt es nichts zu pruefen', () => {
+  assert.equal(backtest(series([[0, 100], [10, 90]])).checks, 0);
+  assert.equal(backtest([]).checks, 0);
+});
+
+test('die Guete kommt aus der Selbstkontrolle, sobald es sie gibt', () => {
+  const gleichmaessig = series(Array.from({ length: 8 }, (_, i) => [i * 10, 500 - i * 20]));
+  const gut = predict(gleichmaessig, 10, T0 + 70 * MIN);
+  assert.equal(gut.confidence, 'brauchbar');
+  assert.ok(gut.accuracy.checks >= 3);
+  assert.match(gut.why, /Selbstkontrollen/);
+
+  const ruckartig = series([[0, 500], [10, 480], [20, 460], [30, 10], [40, 400], [50, 20], [60, 380]]);
+  const schlecht = predict(ruckartig, 10, T0 + 60 * MIN);
+  assert.equal(schlecht.confidence, 'grob', 'wer sich oft irrt, sagt das auch');
+});
+
+test('ein gemessener Fehler weitet den Bereich', () => {
+  // Ein Bereich, den die eigene Vergangenheit widerlegt hat, waere
+  // Scheingenauigkeit.
+  const ruckartig = series([[0, 500], [10, 480], [20, 100], [30, 480], [40, 120], [50, 470]]);
+  const p = predict(ruckartig, 20, T0 + 50 * MIN);
+  const roh = predictRange(ruckartig, 20, T0 + 50 * MIN);
+  assert.ok(p.high - p.low >= roh.high - roh.low, 'der Bereich darf nur breiter werden');
+  assert.ok(p.low >= 0);
+});
+
+test('auch nach der Weitung bleibt der Bereich im Moeglichen', () => {
+  const s = series([[0, 60], [10, 40], [20, 55], [30, 30], [40, 50]]);
+  const p = predict(s, 15, T0 + 40 * MIN);
+  assert.ok(p.low >= 0, 'kein negativer Vorrat');
+  assert.ok(p.high <= 60, `${p.high} liegt ueber dem groessten gesehenen Bestand`);
+});
+
+test('ein Bereich, der nie traf, ist nicht brauchbar', () => {
+  // Der Fall aus dem Browsertest: ein Saegezahn, bei dem der Median-Fehler
+  // klein gegen die Menge bleibt, der angegebene Bereich den echten Wert aber
+  // in keinem einzigen Fall enthielt. Das darf nicht "brauchbar" heissen.
+  const saegezahn = series([
+    [0, 400], [20, 280], [40, 340], [60, 400], [80, 280], [100, 340],
+    [120, 400], [140, 280], [160, 340], [180, 400],
+  ]);
+  const a = backtest(saegezahn);
+  assert.ok(a.checks >= 5);
+  assert.ok(a.coverage < 0.5, `Trefferquote ${a.coverage} sollte niedrig sein`);
+  assert.equal(predict(saegezahn, 20, T0 + 180 * MIN).confidence, 'grob');
 });
