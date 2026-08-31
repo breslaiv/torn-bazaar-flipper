@@ -15,37 +15,24 @@
 
 <main>
   <p class="note">
-    Diese Seite beantwortet zwei Fragen, die sich nur im echten Browser klären lassen:
-    <strong>Erlaubt weav3r Cross-Origin-Requests von dieser Seite aus?</strong> und
-    <strong>wie sieht die Antwort tatsächlich aus?</strong>
-    Der Bericht unten lässt sich kopieren und weitergeben.
+    Prüft jede Route, die der Scanner benutzt, gegen den echten Server — und damit die
+    einzige Frage, die sich nicht aus der Doku beantworten lässt:
+    <strong>erlaubt weav3r Cross-Origin-Requests von dieser Seite aus?</strong>
+    Der Bericht lässt sich kopieren und weitergeben.
   </p>
 
   <div class="panel">
-    <h2>weav3r</h2>
     <div class="grid">
-      <label class="field">Endpoint-URL
-        <input type="text" id="weav3rUrl" placeholder="https://weav3r.dev/api/...">
-      </label>
-      <label class="field">API-Key
-        <input type="password" id="weav3rKey" autocomplete="off">
-      </label>
-      <label class="field">Auth-Methode
-        <select id="weav3rAuthMode">
-          <option value="none">keine</option>
-          <option value="query:key">Query ?key=</option>
-          <option value="query:apiKey">Query ?apiKey=</option>
-          <option value="header:X-API-Key">Header X-API-Key</option>
-          <option value="bearer">Authorization: Bearer</option>
-        </select>
-      </label>
       <label class="field">Test-Item-ID
         <input type="number" id="testItemId" value="206">
-        <span class="hint">Wird für <code>{ITEM_ID}</code> eingesetzt. 206 = Xanax.</span>
+        <span class="hint">206 = Xanax.</span>
+      </label>
+      <label class="field">weav3r API-Key
+        <input type="password" id="weav3rKey" autocomplete="off" placeholder="optional">
       </label>
     </div>
     <div class="actions">
-      <button id="testWeav3r" class="primary">weav3r testen</button>
+      <button id="runAll" class="primary">Alle Routen testen</button>
       <button id="testTorn">Torn-Key testen</button>
       <button id="copyReport">Bericht kopieren</button>
       <span id="status"></span>

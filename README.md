@@ -1,100 +1,109 @@
 # Torn Bazaar Flipper
 
-Statischer Scanner, der Bazaar-Angebote aus der [weav3r.dev](https://weav3r.dev/api-docs.html)-API
-gegen Torn-Referenzpreise rechnet und daraus eine nach Profit sortierte Trefferliste baut.
-Kein Backend, kein Build-Schritt — reines HTML/CSS/ES-Modules, läuft direkt auf GitHub Pages.
+Findet Bazaar-Listings, die unter dem liegen, was ein anderer Spieler per Trade dafür zahlt.
+Nutzt die [TornW3B-API](https://weav3r.dev/api-docs.html). Kein Backend, kein Build-Schritt,
+kein API-Key — reines HTML/CSS/ES-Modules, läuft direkt auf GitHub Pages.
 
-## Wie gerechnet wird
+## Der Loop
+
+Die Verkaufsseite ist nicht geschätzt, sondern konkret: `/marketplace/{id}/traders` liefert
+Spieler mit öffentlicher Pricelist, die dieses Item ankaufen, samt berechnetem Ankaufspreis.
+Die API filtert dabei bereits auf Händler, die in den letzten 7 Tagen gehandelt haben und in
+den letzten 48 Stunden online waren.
 
 ```
-Netto-Verkauf = Referenzpreis × Verkaufsfaktor × (1 − Gebühr)
-Profit/Stück  = Netto-Verkauf − Bazaar-Preis
-Gesamtprofit  = Profit/Stück × min(verfügbare Menge, Budget / Bazaar-Preis)
+1 Request   GET /marketplace                     alle Items: Marktpreis, billigstes Listing
+            ↓ Vorauswahl: billigstes Listing ≤ X% des Marktpreises, nach Spanne sortiert
+2N Requests GET /marketplace/{id}                Bazaar-Listings, günstigste zuerst
+            GET /marketplace/{id}/traders        Käufer, höchster Ankaufspreis zuerst
+
+Profit/Stück = Ankaufspreis × Sicherheitsabschlag − Bazaar-Preis
+Gesamtprofit = Profit/Stück × min(verfügbare Menge, Budget / Bazaar-Preis)
 ```
 
-**Referenzpreis** ist standardmäßig Torns `market_value`. Das ist eine bewusste Entscheidung:
-Torns API erlaubt 100 Requests pro Minute, ein Vollscan des Item Markets ist damit unmöglich.
-`market_value` kommt für *alle* Items in einem einzigen Request. Für die besten N Treffer holt
-die App danach den echten Item-Market-Tiefstpreis nach und rechnet neu — diese Zeilen sind in
-der Tabelle als `verifiziert` markiert.
+Die Vorauswahl ist nötig, weil jeder Kandidat zwei Requests kostet und Cloudflare bei
+100 Aufrufen/Minute dichtmacht. Bei 35 Kandidaten sind das 71 Requests pro Scan; der Client
+drosselt selbst auf 80/Minute.
 
-**Verkaufsfaktor** ist die Stellschraube für das private Trade-Szenario: Wenn dein Abnehmer
-90 % des Marktwerts zahlt, trag 90 ein. Trades sind in Torn gebührenfrei, die Gebühr bleibt
-dann auf 0.
+**Zweiter Modus: $1-Bazaare.** `/dollar-bazaars/items` listet Items, die für einen Dollar
+im Bazaar stehen — der Kaufpreis ist per Definition 1, der Profit praktisch der volle
+Marktwert. Diese Listings sind aus `/marketplace/{id}` bewusst ausgeschlossen und nur
+über diese Route zu finden.
 
-Zeilen, deren Bazaar-Preis unter 15 % der Referenz liegt, bekommen ein `prüfen`-Flag statt
-weggefiltert zu werden. Solche Ausreißer sind fast immer ein veraltetes Listing oder ein
-Item, dessen `market_value` nicht stimmt — selten ein echter Fund.
+## Zwei Fallen, die der Client abfängt
+
+**Gesponserte Zeilen.** Sowohl bei Listings als auch bei Tradern hängt die API einen
+bezahlten Eintrag vorne an, unabhängig vom Preis. Wer die Liste für sortiert hält, kauft
+teurer als nötig. Der Client sortiert selbst nach und markiert die Zeile als `gesponsert`.
+
+**Der höchste Preis ist nicht das beste Angebot.** Ein Käufer mit 6 Downvotes, der 10.000
+mehr bietet, ist kein Fortschritt. Standardmäßig fallen negativ bewertete Käufer raus; das
+Häkchen lässt sich abwählen.
+
+Zeilen, deren Bazaar-Preis unter 15 % des Marktpreises liegt, bekommen ein `prüfen`-Flag
+statt weggefiltert zu werden — solche Ausreißer sind meist ein veraltetes Listing.
 
 ## Einrichtung
 
-1. **Torn API-Key** unter <https://www.torn.com/preferences.php#tab=api> erzeugen.
-   *Public Access* reicht für Item-Namen, `market_value` und Item-Market-Preise.
-2. Seite öffnen → **Einstellungen** → Key eintragen.
-3. **weav3r Endpoint-URL** aus <https://weav3r.dev/api-docs.html> eintragen.
-   Braucht der Endpoint eine Item-ID im Pfad, setz `{ITEM_ID}` als Platzhalter ein —
-   die App scannt dann die unter *Item-IDs* gelisteten Items (oder ersatzweise die
-   teuersten, gedeckelt durch *Max. Items pro Scan*).
-4. **Speichern**, dann **Scan starten**.
+Seite öffnen, **Scan starten**. Mehr braucht es nicht — alle genutzten Routen sind öffentlich.
 
-Bricht der Scan mit einem Netzwerk-/CORS-Fehler ab: `diagnose.html` öffnen und
-*weav3r testen*. Die Seite zeigt Statuscode, sichtbare Header, die Rohantwort und was
-der Parser daraus gelesen hat.
+Zwei optionale Keys, beide nur im `localStorage` des Browsers und nie im Repository:
 
-### Keys
+- **Torn API-Key** (Public Access reicht): schaltet die Gegenprobe gegen den echten
+  Item-Market-Tiefstpreis frei, angezeigt als `IM $…` an der Trefferzeile.
+- **weav3r API-Key**: für die hier genutzten Routen nicht nötig, nur für Pricelist- und
+  Trade-Endpunkte.
 
-Beide Schlüssel liegen ausschließlich im `localStorage` deines Browsers. Sie gehen nur an
-`api.torn.com` bzw. an den von dir eingetragenen weav3r-Endpoint und landen nie im Repository.
-*Einstellungen zurücksetzen* löscht sie wieder.
+Bricht ein Scan mit einem Netzwerkfehler ab: `diagnose.html` öffnen und **Alle Routen
+testen**. Die Seite geht jede benutzte Route einzeln durch und zeigt, woran es hängt.
 
 ## Hosting auf GitHub Pages
 
-Der Workflow `.github/workflows/pages.yml` deployt bei jedem Push auf `main`. Einmalig nötig:
+`.github/workflows/pages.yml` deployt bei jedem Push auf `main`. Einmalig nötig:
 **Settings → Pages → Source: GitHub Actions**. Danach liegt die App unter
 `https://<user>.github.io/torn-bazaar-flipper/`.
 
-Lokal testen geht genauso — nur nicht per `file://`, weil ES-Modules dort an CORS scheitern:
+Lokal geht das genauso — nur nicht per `file://`, weil ES-Modules dort an CORS scheitern:
 
 ```bash
 python3 -m http.server 8000   # dann http://localhost:8000
 ```
 
-## Die offene Frage: CORS
+### Falls CORS blockt
 
-Ob die App wirklich *nur* auf GitHub Pages laufen kann, hängt an einem Header, den weav3r
-sendet oder eben nicht: ohne `Access-Control-Allow-Origin` für deine `github.io`-Domain darf
-der Browser die Antwort nicht lesen. `diagnose.html` beantwortet das in zehn Sekunden.
+Ob die App wirklich ohne Backend auskommt, hängt an einem Header, den weav3r sendet oder
+nicht: ohne `Access-Control-Allow-Origin` für die `github.io`-Domain darf der Browser die
+Antwort nicht lesen. `diagnose.html` klärt das in zehn Sekunden. Der Client schickt bewusst
+keine Zusatz-Header (der API-Key ginge als Query-Parameter), damit kein CORS-Preflight nötig
+wird — das ist die häufigste Ursache dafür, dass ein offener Endpunkt im Browser trotzdem
+scheitert.
 
-Wenn es scheitert, gibt es zwei Wege:
+Falls es scheitert, gibt es zwei Wege, die beide nur `js/weav3r.js` betreffen:
 
-| Weg | Kosten | Aktualität | Kein Key im Browser |
-|---|---|---|---|
-| Cloudflare Worker als CORS-Proxy | kostenlos, aber ein zweites Deployment | live | nein |
-| GitHub Actions holt die Daten periodisch als JSON ins Repo | keine | so alt wie das Cron-Intervall | ja |
-
-Beides hängt sich an `js/weav3r.js` an, ohne den Rest anzufassen — der Datenzugriff steckt
-komplett in dieser einen Datei.
+| Weg | Kosten | Aktualität |
+|---|---|---|
+| Cloudflare Worker als CORS-Proxy | kostenlos, aber ein zweites Deployment | live |
+| GitHub Actions holt die Daten periodisch als JSON ins Repo | keine | so alt wie das Cron-Intervall |
 
 ## Aufbau
 
 ```
 index.html          Scanner
-diagnose.html       CORS-/Schema-Test gegen den echten Endpoint
-js/config.js        Defaults und Konstanten
-js/storage.js       localStorage: Einstellungen und Item-Cache
-js/torn.js          Torn API v2 mit Rate-Limit-Fenster (80/min)
-js/weav3r.js        weav3r-Adapter + Normalisierung der Antwort
-js/profit.js        Profit-Rechnung und Filter
+diagnose.html       Routen- und CORS-Test gegen den echten Server
+js/config.js        Defaults, Basis-URLs, Rate-Limits
+js/ratelimit.js     Gleitendes 60-Sekunden-Fenster, je Host eine Instanz
+js/weav3r.js        TornW3B-Client: Katalog, Listings, Trader, $1-Bazaare
+js/torn.js          Torn API v2, optional, nur für die Item-Market-Gegenprobe
+js/profit.js        Vorauswahl, Käuferwahl, Profit-Rechnung, Filter
+js/scan.js          Ablauf eines Scans, abbrechbar, mit Fortschrittsmeldung
+js/storage.js       localStorage
 js/ui.js            Tabelle, Formatierung, Sortierung
-js/app.js           Ablaufsteuerung
+js/app.js           Verdrahtung
 tests/              node --test, ohne Abhängigkeiten
 ```
 
-Das weav3r-Response-Schema ist **nicht** fest verdrahtet: `normalizeBazaar()` sucht im JSON
-nach Arrays, die nach Listings aussehen, und erkennt die üblichen Feldnamen
-(`item_id`/`itemId`, `price`/`cost`, `quantity`/`amount`/`qty`, `player_id`/`user_id`).
-Auch die Form `{"206": [...]}` mit der Item-ID als Schlüssel wird verstanden. Passt das
-Schema trotzdem nicht, ist `js/weav3r.js` die einzige Datei, die angefasst werden muss.
+`scan.js` nimmt seine API-Funktionen per `deps` entgegen, deshalb laufen die Ablauf-Tests
+ohne Netzwerk und ohne Mock-Framework.
 
 ## Tests
 
@@ -102,13 +111,15 @@ Schema trotzdem nicht, ist `js/weav3r.js` die einzige Datei, die angefasst werde
 npm test
 ```
 
-20 Tests über Normalisierung und Profit-Rechnung, ohne externe Abhängigkeiten oder Netzwerk.
+32 Tests über Response-Parsing, Vorauswahl, Profit-Rechnung und Scan-Ablauf.
 
 ## Grenzen
 
-- Bazaar-Daten sind nur so aktuell wie das, was weav3r liefert. Gute Angebote sind in Torn
-  oft in Sekunden weg — die Liste ist ein Vorschlag, keine Garantie.
-- `market_value` ist ein gleitender Durchschnitt und kann bei dünn gehandelten Items deutlich
-  vom real erzielbaren Preis abweichen. Dafür gibt es den Live-Check der Top-Treffer.
-- Der Item-Cache hält Stammdaten standardmäßig 60 Minuten. Bei volatilen Preisen kürzer setzen
-  oder den Cache manuell leeren.
+- Antworten sind serverseitig 30–180 s gecacht. Gute Angebote sind in Torn oft schneller
+  weg als der Cache alt ist — die Liste ist ein Vorschlag, keine Garantie.
+- Wie viel ein Käufer tatsächlich abnimmt, steht in keiner API. Die Mengenspalte zeigt, was
+  im Bazaar liegt und was das Budget hergibt, nicht was der Käufer abnehmen will.
+- Ankaufspreise stammen aus der Pricelist des Käufers zum Abfragezeitpunkt. Vor einem großen
+  Trade lohnt eine kurze Rückfrage.
+- Die Vorauswahl sortiert nach absoluter Spanne. Wer lieber auf Marge optimiert, setzt
+  „Kandidat ab Rabatt" niedriger und filtert über die Mindest-Marge.

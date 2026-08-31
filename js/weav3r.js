@@ -1,157 +1,175 @@
-// Adapter fuer die weav3r.dev-API.
+// Client fuer die TornW3B-API (https://weav3r.dev/api-docs.html).
 //
-// Das konkrete Response-Schema ist hier bewusst NICHT fest verdrahtet.
-// Die Doku (https://weav3r.dev/api-docs.html) ist die Quelle der Wahrheit,
-// und die Endpoint-URL kommt aus den Einstellungen. Der Normalisierer unten
-// erkennt die ueblichen Formen selbst; diagnose.html zeigt, was er gefunden hat.
+// Genutzt werden ausschliesslich die oeffentlichen Marketplace- und
+// Dollar-Bazaar-Routen. Der API-Key ist optional und wird, falls gesetzt, als
+// Query-Parameter mitgeschickt statt als Header: ein X-API-Key-Header wuerde
+// einen CORS-Preflight ausloesen, den wir von github.io aus nicht brauchen.
 
-const PRICE_KEYS = ['price', 'cost', 'item_price', 'itemPrice', 'unit_price', 'unitPrice'];
-const ITEM_ID_KEYS = ['item_id', 'itemId', 'itemID', 'itemid'];
-const QTY_KEYS = ['quantity', 'amount', 'qty', 'available', 'count'];
-const PLAYER_KEYS = ['player_id', 'playerId', 'user_id', 'userId', 'userID', 'owner_id', 'ownerId', 'seller_id'];
-const NAME_KEYS = ['item_name', 'itemName', 'name', 'title'];
+import { WEAV3R_BASE, WEAV3R_RATE_LIMIT } from './config.js';
+import { RateLimiter } from './ratelimit.js';
 
-function pick(obj, keys) {
-  for (const k of keys) {
-    if (obj[k] !== undefined && obj[k] !== null) return obj[k];
-  }
-  return undefined;
-}
+export const limiter = new RateLimiter(WEAV3R_RATE_LIMIT, 'weav3r');
 
-function num(value) {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
-  if (typeof value === 'string') {
-    const n = Number(value.replace(/[^0-9.-]/g, ''));
-    return Number.isFinite(n) ? n : undefined;
-  }
-  return undefined;
-}
-
-// Sammelt alle Arrays aus Objekten, die nach Listings aussehen, samt Pfad.
-// numericAncestor merkt sich einen numerischen Schluessel auf dem Weg
-// dorthin - bei der Form {"206": [ ... ]} ist das die Item-ID.
-function collectListingArrays(node, path = '$', numericAncestor = null, out = [], depth = 0) {
-  if (depth > 6 || node === null || typeof node !== 'object') return out;
-
-  if (Array.isArray(node)) {
-    const objects = node.filter((e) => e && typeof e === 'object' && !Array.isArray(e));
-    if (objects.length && objects.some((e) => pick(e, PRICE_KEYS) !== undefined)) {
-      out.push({ path, rows: objects, itemIdFromPath: numericAncestor });
-    }
-    // Verschachtelte Arrays trotzdem weiterverfolgen.
-    node.forEach((e, i) => collectListingArrays(e, `${path}[${i}]`, numericAncestor, out, depth + 1));
-    return out;
-  }
-
-  for (const [key, value] of Object.entries(node)) {
-    const ancestor = /^\d+$/.test(key) ? Number(key) : numericAncestor;
-    collectListingArrays(value, `${path}.${key}`, ancestor, out, depth + 1);
-  }
-  return out;
-}
-
-/**
- * Bringt eine beliebige weav3r-Response auf eine einheitliche Listing-Form.
- * @returns {{listings: Array, diagnostics: object}}
- */
-export function normalizeBazaar(raw) {
-  const found = collectListingArrays(raw);
-  const listings = [];
-  const seenPaths = [];
-
-  for (const group of found) {
-    seenPaths.push({ path: group.path, rows: group.rows.length });
-    for (const row of group.rows) {
-      const price = num(pick(row, PRICE_KEYS));
-      if (price === undefined || price <= 0) continue;
-
-      const itemId = num(pick(row, ITEM_ID_KEYS)) ?? group.itemIdFromPath;
-      if (itemId === undefined || itemId === null) continue;
-
-      listings.push({
-        itemId: Number(itemId),
-        itemName: pick(row, NAME_KEYS) || null,
-        price,
-        quantity: num(pick(row, QTY_KEYS)) ?? 1,
-        playerId: num(pick(row, PLAYER_KEYS)) ?? null,
-        raw: row,
-      });
-    }
-  }
-
-  return {
-    listings,
-    diagnostics: {
-      arraysFound: seenPaths,
-      listingsParsed: listings.length,
-      sampleRow: listings.length ? listings[0].raw : null,
-    },
-  };
-}
-
-function applyAuth(url, headers, settings) {
-  const mode = settings.weav3rAuthMode || 'none';
-  const key = (settings.weav3rKey || '').trim();
-  if (!key || mode === 'none') return;
-
-  if (mode === 'bearer') {
-    headers.Authorization = `Bearer ${key}`;
-  } else if (mode.startsWith('header:')) {
-    headers[mode.slice('header:'.length)] = key;
-  } else if (mode.startsWith('query:')) {
-    url.searchParams.set(mode.slice('query:'.length), key);
+export class Weav3rError extends Error {
+  constructor(message, status = 0) {
+    super(message);
+    this.name = 'Weav3rError';
+    this.status = status;
   }
 }
 
-/**
- * Ruft den konfigurierten weav3r-Endpoint auf und liefert die Rohantwort.
- * Wirft mit sprechender Meldung, wenn CORS blockt - das ist der wahrscheinlichste
- * Fehlerfall beim Hosten auf github.io.
- */
-export async function fetchBazaarRaw(settings, itemId = null) {
-  const template = (settings.weav3rUrl || '').trim();
-  if (!template) throw new Error('Kein weav3r-Endpoint konfiguriert (siehe Einstellungen).');
-
-  const resolved = itemId === null
-    ? template.replace('{ITEM_ID}', '')
-    : template.replace('{ITEM_ID}', String(itemId));
-
-  let url;
-  try {
-    url = new URL(resolved);
-  } catch {
-    throw new Error(`Ungueltige weav3r-URL: ${resolved}`);
+function buildUrl(path, params = {}, apiKey = '') {
+  const url = new URL(WEAV3R_BASE + path);
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
   }
+  if (apiKey) url.searchParams.set('apiKey', apiKey);
+  return url;
+}
 
-  const headers = { Accept: 'application/json' };
-  applyAuth(url, headers, settings);
+async function get(path, params, settings, { signal } = {}) {
+  await limiter.acquire();
+  const url = buildUrl(path, params, settings.weav3rKey);
 
   let res;
   try {
-    res = await fetch(url, { headers });
+    res = await fetch(url, { headers: { Accept: 'application/json' }, signal });
   } catch (err) {
-    throw new Error(
-      `Netzwerk-/CORS-Fehler beim Aufruf von ${url.origin}. ` +
-      `Wenn weav3r keinen Access-Control-Allow-Origin-Header fuer diese Seite sendet, ` +
-      `kann der Browser die Antwort nicht lesen. Details: ${err.message}`
+    if (err.name === 'AbortError') throw err;
+    throw new Weav3rError(
+      `weav3r.dev ist vom Browser aus nicht erreichbar (${err.message}). `
+      + 'Moeglich sind ein fehlender CORS-Header, eine Blockade durch einen Adblocker '
+      + 'oder ein Netzwerkproblem. Details liefert die API-Diagnose.',
     );
   }
 
-  if (!res.ok) throw new Error(`weav3r antwortete mit HTTP ${res.status}`);
-
-  const text = await res.text();
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(`Antwort war kein JSON. Erste 200 Zeichen: ${text.slice(0, 200)}`);
+  if (res.status === 429) {
+    throw new Weav3rError('weav3r hat mit 429 geantwortet (Rate-Limit). Kandidatenzahl senken.', 429);
   }
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const body = await res.json();
+      detail = body.error || body.message || '';
+    } catch { /* Body war kein JSON */ }
+    throw new Weav3rError(`weav3r HTTP ${res.status}${detail ? `: ${detail}` : ''}`, res.status);
+  }
+
+  return res.json();
 }
 
-export async function fetchBazaarListings(settings, itemId = null) {
-  const raw = await fetchBazaarRaw(settings, itemId);
-  return normalizeBazaar(raw);
+// ---------- Marketplace ----------
+
+/**
+ * Alle Items mit Marktpreis, Bazaar-Durchschnitt und billigstem Listing.
+ * Ein einziger Request deckt den gesamten Katalog ab - das ist die Basis
+ * fuer die Vorauswahl.
+ */
+export async function fetchMarketplace(settings, opts = {}) {
+  const data = await get('/marketplace', {}, settings, opts);
+  const items = Array.isArray(data.items) ? data.items : [];
+  return {
+    generatedAt: data.generated_at ?? null,
+    items: items.map((i) => ({
+      itemId: Number(i.item_id),
+      itemName: i.item_name ?? `Item ${i.item_id}`,
+      marketPrice: Number(i.market_price) || 0,
+      bazaarAverage: i.bazaar_average == null ? null : Number(i.bazaar_average),
+      lowestPrice: i.lowest_price == null ? null : Number(i.lowest_price),
+      totalBazaars: Number(i.total_bazaars) || 0,
+    })).filter((i) => Number.isFinite(i.itemId)),
+  };
 }
 
-export function urlNeedsItemId(url) {
-  return (url || '').includes('{ITEM_ID}');
+/**
+ * Bazaar-Listings eines Items, guenstigste zuerst.
+ * $1-Listings sind hier per API ausgeschlossen - die stehen unter /dollar-bazaars.
+ * Ist ein gesponsertes Listing dabei, haengt die API es unabhaengig vom Preis
+ * vorne an; wir sortieren deshalb selbst nach und markieren die Zeile.
+ */
+export async function fetchItemListings(itemId, settings, opts = {}) {
+  const data = await get(`/marketplace/${itemId}`, {
+    limit: Math.min(settings.listingsPerItem || 20, 100),
+    maxPrice: settings.maxBuyPrice > 0 ? settings.maxBuyPrice : undefined,
+  }, settings, opts);
+
+  const listings = (Array.isArray(data.listings) ? data.listings : [])
+    .map((l) => ({
+      itemId: Number(l.item_id ?? itemId),
+      uid: l.uid ?? null,
+      playerId: l.player_id == null ? null : Number(l.player_id),
+      playerName: l.player_name ?? null,
+      quantity: Number(l.quantity) || 0,
+      price: Number(l.price) || 0,
+      contentUpdated: l.content_updated ?? null,
+      sponsored: l.sponsored === 1,
+    }))
+    .filter((l) => l.price > 0 && l.quantity > 0)
+    .sort((a, b) => a.price - b.price);
+
+  return {
+    itemId: Number(data.item_id ?? itemId),
+    itemName: data.item_name ?? null,
+    marketPrice: Number(data.market_price) || 0,
+    bazaarAverage: data.bazaar_average == null ? null : Number(data.bazaar_average),
+    listings,
+  };
+}
+
+/**
+ * Aktive Kaeufer mit oeffentlicher Pricelist fuer ein Item, hoechster
+ * Ankaufspreis zuerst. Das ist die Verkaufsseite des Flips.
+ */
+export async function fetchItemTraders(itemId, settings, opts = {}) {
+  const data = await get(`/marketplace/${itemId}/traders`, {
+    limit: Math.min(settings.tradersPerItem || 10, 100),
+    sort: 'price',
+    tradedWithinHours: settings.tradedWithinHours > 0 ? settings.tradedWithinHours : undefined,
+  }, settings, opts);
+
+  const traders = (Array.isArray(data.traders) ? data.traders : [])
+    .map((t) => {
+      const rating = t.rating || {};
+      const up = Number(rating.upvotes) || 0;
+      const down = Number(rating.downvotes) || 0;
+      return {
+        playerId: Number(t.player_id),
+        playerName: t.player_name ?? `Spieler ${t.player_id}`,
+        price: Number(t.price) || 0,
+        upvotes: up,
+        downvotes: down,
+        ratingScore: up - down,
+        lastTrade: t.last_trade ?? null,
+        lastAction: t.last_action ?? null,
+        sponsored: t.sponsored === 1,
+      };
+    })
+    .filter((t) => t.price > 0)
+    .sort((a, b) => b.price - a.price);
+
+  return { itemId: Number(data.item_id ?? itemId), itemName: data.item_name ?? null, traders };
+}
+
+// ---------- Dollar-Bazaare ----------
+
+/** Items, die fuer $1 im Bazaar stehen. Reiner Gewinn, wenn man sie erwischt. */
+export async function fetchDollarItems(settings, { page = 1, limit = 100, ...opts } = {}) {
+  const data = await get('/dollar-bazaars/items', { page, limit: Math.min(limit, 100) }, settings, opts);
+  const items = Array.isArray(data.items) ? data.items : [];
+  return items.map((i) => ({
+    itemId: Number(i.itemId),
+    itemName: i.itemName ?? `Item ${i.itemId}`,
+    itemType: i.itemType ?? '',
+    playerId: i.playerId == null ? null : Number(i.playerId),
+    playerName: i.sellerName ?? null,
+    quantity: Number(i.quantity) || 0,
+    marketPrice: Number(i.marketPrice) || 0,
+    lastUpdated: i.lastUpdated ?? null,
+  })).filter((i) => Number.isFinite(i.itemId) && i.quantity > 0);
+}
+
+// ---------- Diagnose ----------
+
+export async function fetchHealth(settings) {
+  return get('/health', {}, settings);
 }

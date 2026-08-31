@@ -2,57 +2,11 @@ const money = new Intl.NumberFormat('en-US');
 
 export function fmtMoney(n) {
   if (!Number.isFinite(n)) return '—';
-  const sign = n < 0 ? '-' : '';
-  return `${sign}$${money.format(Math.round(Math.abs(n)))}`;
+  return `${n < 0 ? '-' : ''}$${money.format(Math.round(Math.abs(n)))}`;
 }
 
 export function fmtPct(n) {
-  if (!Number.isFinite(n)) return '—';
-  return `${n.toFixed(1)}%`;
-}
-
-export function setStatus(text, kind = '') {
-  const el = document.getElementById('status');
-  el.textContent = text;
-  el.className = kind;
-}
-
-function bazaarLink(row) {
-  if (!row.playerId) return '';
-  const href = `https://www.torn.com/bazaar.php?userId=${row.playerId}#/`;
-  return `<a href="${href}" target="_blank" rel="noopener">${row.playerId}</a>`;
-}
-
-function cell(value, cls = '') {
-  return `<td class="num ${cls}">${value}</td>`;
-}
-
-export function renderRows(rows) {
-  const tbody = document.querySelector('#results tbody');
-  document.getElementById('rowCount').textContent = String(rows.length);
-
-  if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="left" style="color:#949cab">Keine Treffer.</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = rows.map((row) => {
-    const tags = [];
-    if (row.verified) tags.push('<span class="tag ok">verifiziert</span>');
-    if (row.suspicious) tags.push('<span class="tag warn">prüfen</span>');
-    const profitCls = row.profitPerUnit >= 0 ? 'pos' : 'neg';
-    return `<tr>
-      <td class="left">${escapeHtml(row.itemName)}${tags.join('')}</td>
-      ${cell(fmtMoney(row.buy))}
-      ${cell(fmtMoney(row.reference))}
-      ${cell(fmtMoney(row.sellNet))}
-      ${cell(fmtMoney(row.profitPerUnit), profitCls)}
-      ${cell(fmtPct(row.profitPct), profitCls)}
-      ${cell(money.format(row.quantity))}
-      ${cell(fmtMoney(row.totalProfit), profitCls)}
-      <td class="left">${bazaarLink(row)}</td>
-    </tr>`;
-  }).join('');
+  return Number.isFinite(n) ? `${n.toFixed(1)}%` : '—';
 }
 
 export function escapeHtml(s) {
@@ -61,7 +15,68 @@ export function escapeHtml(s) {
   ));
 }
 
-/** Klickbare Spaltenkoepfe; gibt eine Funktion zum Neusetzen der Daten zurueck. */
+export function setStatus(text, kind = '') {
+  const el = document.getElementById('status');
+  if (!el) return;
+  el.textContent = text;
+  el.className = kind;
+}
+
+function sellerCell(row) {
+  if (!row.sellerId) return '<td class="left">—</td>';
+  const label = escapeHtml(row.sellerName || row.sellerId);
+  return `<td class="left"><a href="https://www.torn.com/bazaar.php?userId=${row.sellerId}" target="_blank" rel="noopener">${label}</a></td>`;
+}
+
+function buyerCell(row) {
+  if (!row.buyerId) return '<td class="left">—</td>';
+  const label = escapeHtml(row.buyerName || row.buyerId);
+  const rating = row.buyerRating === null
+    ? ''
+    : `<span class="tag ${row.buyerRating >= 0 ? 'ok' : 'warn'}">${row.buyerRating >= 0 ? '+' : ''}${row.buyerRating}</span>`;
+  return `<td class="left"><a href="https://www.torn.com/trade.php#step=start&userID=${row.buyerId}" target="_blank" rel="noopener">${label}</a>${rating}</td>`;
+}
+
+function num(value, cls = '') {
+  return `<td class="num ${cls}">${value}</td>`;
+}
+
+export function renderRows(rows) {
+  const tbody = document.querySelector('#results tbody');
+  const count = document.getElementById('rowCount');
+  if (count) count.textContent = String(rows.length);
+  if (!tbody) return;
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="10" class="left" style="color:#949cab">Keine Treffer.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map((row) => {
+    const tags = [];
+    if (row.sponsored) tags.push('<span class="tag">gesponsert</span>');
+    if (row.suspicious) tags.push('<span class="tag warn">prüfen</span>');
+    if (Number.isFinite(row.itemMarketLow)) {
+      tags.push(`<span class="tag">IM ${fmtMoney(row.itemMarketLow)}</span>`);
+    }
+    const cls = row.profitPerUnit >= 0 ? 'pos' : 'neg';
+
+    return `<tr>
+      <td class="left">${escapeHtml(row.itemName)}${tags.join('')}</td>
+      ${sellerCell(row)}
+      ${num(fmtMoney(row.buy))}
+      ${buyerCell(row)}
+      ${num(fmtMoney(row.reference))}
+      ${num(fmtMoney(row.sellNet))}
+      ${num(fmtMoney(row.profitPerUnit), cls)}
+      ${num(fmtPct(row.profitPct), cls)}
+      ${num(money.format(row.units))}
+      ${num(fmtMoney(row.totalProfit), cls)}
+    </tr>`;
+  }).join('');
+}
+
+/** Klickbare Spaltenkoepfe. */
 export function installSorting(getRows, onSorted) {
   let sortKey = 'totalProfit';
   let asc = false;
@@ -76,9 +91,11 @@ export function installSorting(getRows, onSorted) {
         const x = a[sortKey];
         const y = b[sortKey];
         if (typeof x === 'string' || typeof y === 'string') {
-          return asc ? String(x).localeCompare(String(y)) : String(y).localeCompare(String(x));
+          return asc
+            ? String(x ?? '').localeCompare(String(y ?? ''))
+            : String(y ?? '').localeCompare(String(x ?? ''));
         }
-        return asc ? x - y : y - x;
+        return asc ? (x ?? 0) - (y ?? 0) : (y ?? 0) - (x ?? 0);
       });
       onSorted(sorted);
     });

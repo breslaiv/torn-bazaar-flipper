@@ -1,58 +1,112 @@
-// Profit-Rechnung: Bazaar-Kauf gegen Verkaufsreferenz.
+// Profit-Rechnung: Bazaar-Kauf gegen einen realen Ankaufspreis.
+
+/** Netto-Erloes pro Stueck nach Sicherheitsabschlag und Gebuehr. */
+export function netProceeds(reference, settings) {
+  return reference * (settings.sellFactor / 100) * (1 - settings.marketFeePct / 100);
+}
 
 /**
- * @param {object} listing  normalisiertes Bazaar-Listing
- * @param {object} item     Torn-Item-Stammdaten (kann fehlen)
- * @param {object} settings
- * @param {number|null} verifiedLow  live geprueftes Itemmarket-Tief, falls vorhanden
+ * Waehlt aus dem Katalog die Items aus, fuer die sich ein Detail-Request lohnt.
+ * Jeder Kandidat kostet zwei weitere Requests, also wird hier hart gesiebt.
  */
-export function evaluate(listing, item, settings, verifiedLow = null) {
-  const marketValue = item?.marketValue ?? 0;
+export function prescreen(items, settings) {
+  const threshold = settings.prescreenPct / 100;
+  const maxBuy = Number(settings.maxBuyPrice) || 0;
 
-  let reference = marketValue;
-  let referenceSource = 'market_value';
-  if (settings.priceSource === 'itemmarket' && verifiedLow) {
-    reference = verifiedLow;
-    referenceSource = 'itemmarket';
-  } else if (verifiedLow) {
-    // Auch im market_value-Modus gewinnt ein live geprueftes Tief, sobald es
-    // vorliegt: es ist der Preis, zu dem real jemand kauft.
-    reference = verifiedLow;
-    referenceSource = 'itemmarket (verifiziert)';
-  }
+  return items
+    .filter((i) => (
+      i.totalBazaars > 0
+      && i.marketPrice > 0
+      && i.lowestPrice > 0
+      && i.lowestPrice <= i.marketPrice * threshold
+      && (maxBuy === 0 || i.lowestPrice <= maxBuy)
+    ))
+    .map((i) => ({ ...i, gap: i.marketPrice - i.lowestPrice }))
+    .sort((a, b) => b.gap - a.gap)
+    .slice(0, Math.max(0, settings.maxCandidates));
+}
 
-  const buy = listing.price;
-  const gross = reference * (settings.sellFactor / 100);
-  const net = gross * (1 - settings.marketFeePct / 100);
-  const profitPerUnit = net - buy;
+/** Bester Kaeufer aus der Traderliste, oder null. */
+export function pickBuyer(traders, settings) {
+  const eligible = settings.requireNonNegativeRating
+    ? traders.filter((t) => t.ratingScore >= 0)
+    : traders;
+  if (!eligible.length) return null;
+  return eligible.reduce((best, t) => (t.price > best.price ? t : best), eligible[0]);
+}
+
+function finishRow(row, settings) {
+  const { buy, reference, quantity } = row;
+  const sellNet = netProceeds(reference, settings);
+  const profitPerUnit = sellNet - buy;
   const profitPct = buy > 0 ? (profitPerUnit / buy) * 100 : 0;
 
   const budget = Number(settings.budget) || 0;
   const affordable = budget > 0 ? Math.floor(budget / buy) : Infinity;
-  const units = Math.max(0, Math.min(listing.quantity, affordable));
-  const totalProfit = profitPerUnit * units;
-
-  // Ein Bazaar-Preis unter 15% des Marktwerts ist fast immer ein Artefakt:
-  // veraltetes Listing, falsch geparstes Feld oder ein Item, dessen
-  // market_value nicht stimmt. Nicht wegfiltern, aber markieren.
-  const suspicious = reference > 0 && buy / reference < 0.15;
+  const units = Math.max(0, Math.min(quantity, affordable));
 
   return {
-    ...listing,
-    itemName: item?.name || listing.itemName || `Item ${listing.itemId}`,
-    itemType: item?.type || '',
-    marketValue,
-    reference,
-    referenceSource,
-    verified: verifiedLow !== null,
-    buy,
-    sellNet: net,
+    ...row,
+    sellNet,
     profitPerUnit,
     profitPct,
-    units: Number.isFinite(units) ? units : listing.quantity,
-    totalProfit: Number.isFinite(totalProfit) ? totalProfit : profitPerUnit * listing.quantity,
-    suspicious,
+    units: Number.isFinite(units) ? units : quantity,
+    totalProfit: profitPerUnit * (Number.isFinite(units) ? units : quantity),
   };
+}
+
+/**
+ * Baut die Zeilen fuer ein Item: jedes Bazaar-Listing gegen den besten Kaeufer.
+ * Ohne Kaeufer gibt es im Trader-Modus keinen Exit - dann entstehen keine Zeilen.
+ */
+export function buildFlipRows({ itemId, itemName, marketPrice, listings, traders }, settings) {
+  const buyer = pickBuyer(traders, settings);
+  if (settings.referenceMode === 'trader' && !buyer) return [];
+
+  const useTrader = settings.referenceMode === 'trader';
+  const reference = useTrader ? buyer.price : marketPrice;
+  if (!(reference > 0)) return [];
+
+  return listings.map((l) => finishRow({
+    itemId,
+    itemName,
+    buy: l.price,
+    quantity: l.quantity,
+    sellerId: l.playerId,
+    sellerName: l.playerName,
+    sponsored: l.sponsored,
+    marketPrice,
+    reference,
+    referenceLabel: useTrader ? 'Käufer' : 'Marktpreis',
+    buyerId: buyer ? buyer.playerId : null,
+    buyerName: buyer ? buyer.playerName : null,
+    buyerRating: buyer ? buyer.ratingScore : null,
+    // Ein Bazaar-Preis unter 15% des Marktwerts ist fast immer ein Artefakt:
+    // veraltetes Listing oder ein Item, dessen Marktpreis nicht stimmt.
+    suspicious: marketPrice > 0 && l.price / marketPrice < 0.15,
+  }, settings));
+}
+
+/** $1-Listings: Kaufpreis ist per Definition 1, Referenz ist der Marktpreis. */
+export function buildDollarRows(items, settings) {
+  return items
+    .filter((i) => i.marketPrice > 0)
+    .map((i) => finishRow({
+      itemId: i.itemId,
+      itemName: i.itemName,
+      buy: 1,
+      quantity: i.quantity,
+      sellerId: i.playerId,
+      sellerName: i.playerName,
+      sponsored: false,
+      marketPrice: i.marketPrice,
+      reference: i.marketPrice,
+      referenceLabel: 'Marktpreis',
+      buyerId: null,
+      buyerName: null,
+      buyerRating: null,
+      suspicious: false,
+    }, settings));
 }
 
 export function passesFilters(row, settings) {
@@ -63,26 +117,6 @@ export function passesFilters(row, settings) {
   return true;
 }
 
-export function buildRows(listings, itemsById, settings, verifiedLows = new Map()) {
-  const rows = [];
-  for (const listing of listings) {
-    const item = itemsById.get(listing.itemId);
-    const row = evaluate(listing, item, settings, verifiedLows.get(listing.itemId) ?? null);
-    if (passesFilters(row, settings)) rows.push(row);
-  }
-  rows.sort((a, b) => b.totalProfit - a.totalProfit || b.profitPerUnit - a.profitPerUnit);
-  return rows;
-}
-
-/** Item-IDs der besten N Treffer - nur die werden live gegengeprueft. */
-export function topItemIdsForVerification(rows, n) {
-  const ids = [];
-  const seen = new Set();
-  for (const row of rows) {
-    if (seen.has(row.itemId)) continue;
-    seen.add(row.itemId);
-    ids.push(row.itemId);
-    if (ids.length >= n) break;
-  }
-  return ids;
+export function sortByTotalProfit(rows) {
+  return [...rows].sort((a, b) => b.totalProfit - a.totalProfit || b.profitPerUnit - a.profitPerUnit);
 }
