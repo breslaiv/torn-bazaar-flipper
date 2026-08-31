@@ -1,7 +1,7 @@
 // Bei jeder Aenderung hochzaehlen und danach tools/version-assets.py laufen
 // lassen: der Stempel haengt an jedem Import und macht eine neue Fassung zu
 // einer eigenen URL. Ohne ihn liefert der Browser tagelang den alten Stand.
-export const APP_VERSION = '8';
+export const APP_VERSION = '9';
 
 // Zentrale Konfiguration. Alles hier ist ueber die Einstellungen im UI
 // ueberschreibbar und landet dann in localStorage.
@@ -62,6 +62,10 @@ export const DEFAULTS = {
 
   // Ledger: zuletzt gewaehlter Zeitraum, siehe PERIODS in js/ledger.js.
   ledgerPeriod: 'all',
+  // Beim Oeffnen der Ledger-Seite automatisch aus dem Torn-Log aktualisieren.
+  // Aus als Vorgabe: das kostet bei jedem Oeffnen einen Zugriff mit dem
+  // Full-Access-Key, und das entscheidet niemand ausser dem Nutzer.
+  ledgerAutoImport: false,
 
   // Betrieb
   autoRefreshSec: 0,           // 0 = aus

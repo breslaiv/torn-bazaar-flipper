@@ -147,6 +147,42 @@ Zugeordnet wird dabei immer über die **ganze** Historie, und erst das Ergebnis 
 dem Verkaufsdatum zugeschnitten. Andernfalls verlöre ein Verkauf von heute den Einstand
 eines Kaufs von letzter Woche und stünde als Verkauf *ohne Einstand* mit Profit null da.
 
+### Bestand bewerten
+
+Die offenen Positionen zeigten lange nur, was die Ware gekostet hat. Was sie jetzt wert ist,
+steht im öffentlichen weav3r-Katalog — ein Request, kein Key —, und wird beim Öffnen der Seite
+aus einem zehn Minuten gültigen Zwischenspeicher gefüllt. Daraus die Spalten *Wert jetzt* und
+*Unrealisiert* sowie eine eigene Kachel.
+
+Zwei Preise, die nicht dasselbe sind und deshalb getrennt bleiben:
+
+| | Bedeutung |
+|---|---|
+| **Marktwert** | Torns `market_price`. Was das Item wert ist, nicht was jemand zahlt. Der richtige Maßstab für eine Bestandsbewertung. |
+| **Ankauf** | Der Preis des besten Käufers mit öffentlicher Pricelist. Was du jetzt tatsächlich bekämst — meist deutlich darunter. |
+
+Der Ankaufspreis kostet einen Request je Item und läuft deshalb nur auf Knopfdruck
+(*Ankaufspreise prüfen*), gedeckelt auf die zwölf größten Positionen. **Ohne Kurs wird nicht
+geschätzt:** eine Position ohne Preis bleibt unbewertet und wird als solche gezählt. Der
+Einstand als Ersatzwert wäre bequem und falsch — die Position sähe dann immer nach plus/minus
+null aus.
+
+### Erfassen und Korrigieren
+
+Beim manuellen Eintrag genügt der **Itemname**; die Vorschlagsliste kommt aus dem Katalog, und
+eine reine Zahl gilt weiterhin als Item-ID. Unter dem Feld steht der aktuelle Marktpreis, damit
+man den Einstand einordnen kann.
+
+Jede Zeile lässt sich **ändern** statt nur löschen. Id, Quelle und Referenz bleiben dabei
+erhalten — sonst käme ein importierter Vorgang beim nächsten Import ein zweites Mal herein.
+
+### Ein Knopf statt vier Schritten
+
+*Aktualisieren* oben auf der Seite holt die Kurse, liest den Log, übernimmt das Gefundene und
+bewertet den Bestand. Der ausführliche Bericht entsteht weiterhin und steht im Import-Panel,
+falls etwas fehlt. Wer will, lässt das beim Öffnen der Seite automatisch laufen — die Option
+ist **aus** als Vorgabe, denn sie kostet jedes Mal einen Zugriff mit dem Full-Access-Key.
+
 ### Angebote
 
 Ein Trade, der abläuft, hinterlässt nichts außer der Ware, die wieder im Inventar liegt —
@@ -458,7 +494,8 @@ js/storage.js       localStorage
 js/ui.js            Spaltendefinition, Tabelle/Karten, Sortierung
 js/app.js           Verdrahtung, Fortschritt
 ledger.html         Buchführung über Käufe, Verkäufe und Profit
-js/ledger.js        Ereignismodell, FIFO-Zuordnung, Kennzahlen
+js/ledger.js        Ereignismodell, FIFO-Zuordnung, Kennzahlen, Zeitraeume
+js/valuation.js     Bestandsbewertung, Kurs-Zwischenspeicher
 js/ledgerStore.js   localStorage, Export und Import
 js/tornlog.js       Log-Typen und -Kategorien von Torn, Import, Bericht
 js/tradelog.js      Trades aus mehreren Log-Eintraegen zusammensetzen, Angebote
@@ -479,9 +516,9 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-217 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
+230 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
 Parallelität und Abbruch, Zeitstempel-Deutung, Scan-Ablauf, Markup, Sortierung,
-Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status und Persistenz sowie die Key-, CSP-,
+Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status, Bestandsbewertung und Persistenz sowie die Key-, CSP-,
 Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
 
 Der Sortier-Controller wird gegen einen kleinen DOM-Stub getestet (`tests/sorting.test.mjs`),

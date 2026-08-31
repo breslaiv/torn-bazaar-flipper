@@ -146,3 +146,36 @@ test('eine leere Tabelle spannt ueber alle Spalten', () => {
   assert.match(body, /colspan="2"/);
   assert.match(body, /Nichts da\./);
 });
+
+test('updateEvent korrigiert einen Eintrag, ohne seine Herkunft zu verlieren', () => {
+  reset();
+  const importiert = { ...ev({ unitPrice: 700 }), source: 'torn-log', ref: 'trade-42' };
+  store.addEvents([importiert]);
+
+  const { events, changed } = store.updateEvent(importiert.id, { unitPrice: 750, quantity: 3 });
+  assert.equal(changed, true);
+  assert.equal(events[0].unitPrice, 750);
+  assert.equal(events[0].quantity, 3);
+  // Id, Quelle und Referenz bleiben: sonst kaeme derselbe Vorgang beim
+  // naechsten Import ein zweites Mal herein.
+  assert.equal(events[0].id, importiert.id);
+  assert.equal(events[0].source, 'torn-log');
+  assert.equal(events[0].ref, 'trade-42');
+});
+
+test('updateEvent laesst sich keinen unbrauchbaren Eintrag unterschieben', () => {
+  reset();
+  const e = ev();
+  store.addEvents([e]);
+  const { events, changed } = store.updateEvent(e.id, { quantity: 0 });
+  assert.equal(changed, false);
+  assert.equal(events[0].quantity, e.quantity, 'der alte Stand bleibt stehen');
+});
+
+test('updateEvent auf eine unbekannte Id aendert nichts', () => {
+  reset();
+  store.addEvents([ev()]);
+  const { changed, events } = store.updateEvent('gibt-es-nicht', { unitPrice: 1 });
+  assert.equal(changed, false);
+  assert.equal(events.length, 1);
+});

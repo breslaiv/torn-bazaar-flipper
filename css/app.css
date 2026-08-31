@@ -397,6 +397,9 @@ details.panel:not([open]) { padding: 6px 12px; }
 .warn-text { color: var(--warn); }
 
 p.hint { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
+/* Meldungen neben einem Knopf sind Hinweise, keine Fliesstext-Absaetze -
+   ohne diese Regel erben sie die Schriftgroesse des Bodys und schreien. */
+span.hint { color: var(--muted); font-size: 12px; }
 
 /* Zurueckhaltende Aktion in einer Tabellenzelle. */
 .link-btn {
@@ -408,5 +411,24 @@ p.hint { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
   text-decoration: underline;
 }
 .link-btn:hover { color: var(--bad); background: none; }
+/* Zwei Aktionen in einer Zelle brauchen Luft, sonst liest sich das als ein
+   Wort ("aendernloeschen") und man trifft auf dem Handy das falsche. */
+.link-btn + .link-btn { margin-left: 14px; }
 
 textarea { width: 100%; resize: vertical; font-family: var(--mono); font-size: 12px; }
+
+/* Kontrollkaestchen mit Beschriftung daneben statt darueber - sonst steht das
+   Haekchen allein in einer Zeile und der Text darunter. */
+.field.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.field.check input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  flex: 0 0 auto;
+}
+.field.check .hint { flex: 1 1 100%; margin: 0; }

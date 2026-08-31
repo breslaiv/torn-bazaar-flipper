@@ -5,7 +5,7 @@
 // wurden. Deshalb gibt es Export und Import als JSON, und die Oberflaeche
 // weist darauf hin, solange nie exportiert wurde.
 
-import { makeEvent, isValidEvent, dedupe } from './ledger.js?v=8';
+import { makeEvent, isValidEvent, dedupe } from './ledger.js?v=9';
 
 export const LEDGER_KEY = 'tbf.ledger.v1';
 export const EXPORT_KEY = 'tbf.ledger.exported.v1';
@@ -45,6 +45,35 @@ export function addEvents(incoming) {
 
   saveEvents(merged);
   return { events: merged, added, duplicates: valid.length - added, invalid };
+}
+
+/**
+ * Aendert einen vorhandenen Eintrag.
+ *
+ * Bisher ging nur Loeschen und Neuanlegen - bei einem Zahlendreher im Preis
+ * eine unnoetig grosse Geste, und der Eintrag verliert dabei seine Herkunft.
+ * Id, Quelle und Referenz bleiben deshalb, was sie waren: sonst taucht ein
+ * importierter Vorgang beim naechsten Import ein zweites Mal auf.
+ *
+ * @returns {{events: Array, changed: boolean}}
+ */
+export function updateEvent(id, patch) {
+  const events = loadEvents();
+  const index = events.findIndex((e) => e.id === id);
+  if (index < 0) return { events, changed: false };
+
+  const updated = {
+    ...events[index],
+    ...patch,
+    id: events[index].id,
+    source: events[index].source,
+    ref: events[index].ref,
+  };
+  if (!isValidEvent(updated)) return { events, changed: false };
+
+  const next = [...events];
+  next[index] = updated;
+  return { events: saveEvents(next), changed: true };
 }
 
 export function removeEvent(id) {

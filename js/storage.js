@@ -1,4 +1,4 @@
-import { DEFAULTS, STORAGE_KEY } from './config.js?v=8';
+import { DEFAULTS, STORAGE_KEY } from './config.js?v=9';
 
 export function loadSettings() {
   let stored = {};

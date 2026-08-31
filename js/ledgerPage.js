@@ -1,26 +1,35 @@
-import { loadSettings, saveSettings } from './storage.js?v=8';
+import { loadSettings, saveSettings } from './storage.js?v=9';
 import {
   makeEvent, matchFifo, summarise, profitByItem,
   PERIODS, periodRange, filterByRange,
-} from './ledger.js?v=8';
+} from './ledger.js?v=9';
 import {
-  loadEvents, saveEvents, addEvents, removeEvent, clearLedger,
+  loadEvents, saveEvents, addEvents, removeEvent, updateEvent, clearLedger,
   exportJson, parseImport, markExported, lastExport,
-} from './ledgerStore.js?v=8';
+} from './ledgerStore.js?v=9';
 import {
   fetchLog, fetchLogTypes, fetchLogCategories, deriveLogTypes, deriveCategories,
   inspect, TornLogError,
-} from './tornlog.js?v=8';
-import { reconstructTrades, offersFromLog, STATUS_LABELS } from './tradelog.js?v=8';
-import { loadOffers, mergeOffers, setNote, removeOffer } from './offersStore.js?v=8';
-import { fetchMarketplace } from './weav3r.js?v=8';
-import { renderTable } from './table.js?v=8';
-import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=8';
-import { APP_VERSION } from './config.js?v=8';
+} from './tornlog.js?v=9';
+import { reconstructTrades, offersFromLog, STATUS_LABELS } from './tradelog.js?v=9';
+import { loadOffers, mergeOffers, setNote, removeOffer } from './offersStore.js?v=9';
+import { fetchMarketplace, fetchItemTraders } from './weav3r.js?v=9';
+import {
+  valueLots, summariseValuation, buyerLookupOrder, priceMap,
+  readPriceCache, writePriceCache, MAX_BUYER_LOOKUPS,
+} from './valuation.js?v=9';
+import { renderTable } from './table.js?v=9';
+import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=9';
+import { APP_VERSION } from './config.js?v=9';
 
 let events = [];
 let offers = [];
 let pendingImport = [];
+// Preise und Ankaufspreise leben nur fuer diese Sitzung im Speicher; der
+// Katalog selbst liegt zwischengespeichert im localStorage.
+let prices = new Map();
+let buyerPrices = new Map();
+let editingId = null;
 
 const dateFmt = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
 const fmtDate = (ts) => dateFmt.format(new Date(ts));
@@ -50,6 +59,15 @@ function renderTiles(summary, range) {
       `${fmtUnits.format(summary.openUnits)} Stück offen, gesamt`),
   ];
 
+  if (summary.valuation && summary.valuation.priced > 0) {
+    const v = summary.valuation;
+    const sub = v.unpriced
+      ? `${fmtMoney(v.value)} Marktwert, ${v.unpriced} ohne Kurs`
+      : `${fmtMoney(v.value)} Marktwert`;
+    parts.push(tile('Unrealisiert', fmtMoney(v.unrealised), sub,
+      v.unrealised >= 0 ? 'pos' : 'neg'));
+  }
+
   if (summary.uncoveredUnits > 0) {
     // Sonst sieht der Profit hoeher aus als er ist, ohne dass jemand merkt warum.
     parts.push(tile('Ohne Einstand', `${fmtUnits.format(summary.uncoveredUnits)}`,
@@ -61,6 +79,9 @@ function renderTiles(summary, range) {
 
 // ---------- Tabellen ----------
 
+const editButton = (id) => `<button class="link-btn" data-edit="${escapeHtml(id)}">ändern</button>`;
+const deleteButton = (id) => `<button class="link-btn" data-del="${escapeHtml(id)}">löschen</button>`;
+
 const OPEN_COLUMNS = [
   { key: 'item', label: 'Item', align: 'left', cell: (r) => ({ text: r.event.itemName }) },
   { key: 'date', label: 'Gekauft', cell: (r) => ({ text: fmtDate(r.event.ts) }) },
@@ -68,9 +89,31 @@ const OPEN_COLUMNS = [
   { key: 'unit', label: 'Einstand/Stück', cell: (r) => ({ text: fmtMoney(r.event.unitPrice) }) },
   { key: 'cost', label: 'Kapital', cell: (r) => ({ text: fmtMoney(r.cost), cls: 'strong' }) },
   {
-    key: 'del',
+    key: 'value',
+    label: 'Wert jetzt',
+    cell: (r) => ({
+      // Ohne Kurs wird nicht geschaetzt - ein Fragezeichen ist ehrlicher als
+      // eine Zahl, die der Einstand ist.
+      html: r.value === null || r.value === undefined
+        ? '<span class="muted">?</span>'
+        : escapeHtml(fmtMoney(r.value))
+          + (r.buyerValue ? `<span class="tag">Ankauf ${fmtMoney(r.buyerValue)}</span>` : ''),
+    }),
+  },
+  {
+    key: 'unrealised',
+    label: 'Unrealisiert',
+    cell: (r) => (r.unrealised === null || r.unrealised === undefined
+      ? { text: '—' }
+      : {
+        text: `${fmtMoney(r.unrealised)}${r.unrealisedPct === null ? '' : ` (${fmtPct(r.unrealisedPct)})`}`,
+        cls: `strong ${r.unrealised >= 0 ? 'pos' : 'neg'}`,
+      }),
+  },
+  {
+    key: 'actions',
     label: '',
-    cell: (r) => ({ html: `<button class="link-btn" data-del="${escapeHtml(r.event.id)}">löschen</button>` }),
+    cell: (r) => ({ html: `${editButton(r.event.id)}${deleteButton(r.event.id)}` }),
   },
 ];
 
@@ -100,6 +143,11 @@ const SALE_COLUMNS = [
       text: s.margin === null ? '—' : fmtPct(s.margin),
       cls: s.profit >= 0 ? 'pos' : 'neg',
     }),
+  },
+  {
+    key: 'actions',
+    label: '',
+    cell: (s) => ({ html: `${editButton(s.sale.id)}${deleteButton(s.sale.id)}` }),
   },
 ];
 
@@ -271,8 +319,13 @@ function render() {
   summary.openUnits = openSummary.openUnits;
   summary.openCount = openSummary.openCount;
 
+  // Der Bestand wird bewertet, sobald Kurse da sind - sonst bleiben die
+  // beiden Spalten leer, statt dass die Tabelle anders aussieht.
+  const valued = valueLots(all.openLots, prices, buyerPrices);
+  summary.valuation = summariseValuation(valued);
+
   renderTiles(summary, range);
-  renderTable('openTable', OPEN_COLUMNS, all.openLots, { empty: 'Kein offener Bestand.' });
+  renderTable('openTable', OPEN_COLUMNS, valued, { empty: 'Kein offener Bestand.' });
   renderTable('salesTable', SALE_COLUMNS, scoped.sales, {
     // Nur Kaeufe erfasst und nichts verkauft heisst nicht, dass der Ledger
     // kaputt ist. Verkaeufe ueber Trades werden zwar zugeordnet, aber nur die
@@ -305,6 +358,143 @@ function reload() {
   renderOffers();
 }
 
+// ---------- Kurse und Bestandsbewertung ----------
+
+/**
+ * Holt den weav3r-Katalog - aus dem Zwischenspeicher, wenn er frisch genug
+ * ist. Ein Fehlschlag ist kein Grund fuer eine Fehlermeldung: ohne Kurse
+ * bleiben die Wertspalten leer, der Rest der Seite funktioniert weiter.
+ */
+async function loadPrices({ force = false } = {}) {
+  if (!force) {
+    const cached = readPriceCache();
+    if (cached) {
+      prices = cached.prices;
+      return { from: 'cache', at: cached.at };
+    }
+  }
+
+  try {
+    const { items } = await fetchMarketplace(loadSettings());
+    prices = priceMap(items);
+    writePriceCache(items);
+    return { from: 'api', at: Date.now() };
+  } catch (err) {
+    console.warn('Kurse nicht geladen:', err.message);
+    return { from: 'error', error: err.message };
+  }
+}
+
+function setValuationMsg(text, cls = 'hint') {
+  const el = document.getElementById('valuationMsg');
+  el.textContent = text;
+  el.className = cls;
+}
+
+/**
+ * Fragt fuer die groessten Positionen den besten Ankaufspreis ab.
+ * Kostet einen Request je Item, deshalb gedeckelt und nur auf Knopfdruck.
+ */
+async function checkBuyers() {
+  const btn = document.getElementById('buyerCheckBtn');
+  const lots = matchFifo(events).openLots;
+  if (!lots.length) {
+    setValuationMsg('Kein Bestand, nichts zu prüfen.');
+    return;
+  }
+
+  btn.disabled = true;
+  const settings = loadSettings();
+  const ids = buyerLookupOrder(valueLots(lots, prices), MAX_BUYER_LOOKUPS);
+  let found = 0;
+
+  try {
+    for (let i = 0; i < ids.length; i++) {
+      setValuationMsg(`Frage Käufer ab… ${i + 1}/${ids.length}`);
+      try {
+        const { traders } = await fetchItemTraders(ids[i], settings);
+        const best = traders.find((tr) => tr.price > 0);
+        if (best) {
+          buyerPrices.set(ids[i], best.price);
+          found += 1;
+        }
+      } catch (err) {
+        console.warn(`Käufer für ${ids[i]} nicht geladen:`, err.message);
+      }
+    }
+
+    render();
+    const rest = lots.length > ids.length ? `, ${lots.length - ids.length} weitere ungeprüft` : '';
+    setValuationMsg(found
+      ? `Beste Ankaufspreise für ${found} von ${ids.length} Positionen${rest}. `
+        + 'Das ist, was du jetzt bekämst — nicht der Marktwert.'
+      : 'Kein aktiver Käufer für deinen Bestand gefunden.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------- Itemauswahl ----------
+
+/** Fuellt die Vorschlagsliste des Item-Feldes aus dem Katalog. */
+function fillItemList() {
+  const list = document.getElementById('itemList');
+  if (!prices.size) return;
+  // Ein paar tausend Optionen sind fuer datalist zuviel; die Auswahl richtet
+  // sich nach dem, was schon im Ledger steht, plus dem teuersten Rest.
+  const known = new Set(events.map((e) => e.itemId));
+  const entries = [...prices.entries()]
+    .map(([itemId, p]) => ({ itemId, itemName: p.itemName, marketPrice: p.marketPrice }))
+    .filter((i) => i.itemName)
+    .sort((a, b) => (
+      (known.has(b.itemId) ? 1 : 0) - (known.has(a.itemId) ? 1 : 0)
+      || b.marketPrice - a.marketPrice
+    ))
+    .slice(0, 400);
+
+  list.innerHTML = entries
+    .map((i) => `<option value="${escapeHtml(i.itemName)}"></option>`)
+    .join('');
+}
+
+/**
+ * Deutet die Eingabe im Item-Feld: Name aus dem Katalog oder nackte Id.
+ * @returns {{itemId: number, itemName: string}|null}
+ */
+function resolveItem(input) {
+  const text = String(input || '').trim();
+  if (!text) return null;
+
+  if (/^\d+$/.test(text)) {
+    const id = Number(text);
+    return { itemId: id, itemName: prices.get(id)?.itemName || `Item ${id}` };
+  }
+
+  const wanted = text.toLowerCase();
+  for (const [itemId, p] of prices) {
+    if (String(p.itemName || '').toLowerCase() === wanted) return { itemId, itemName: p.itemName };
+  }
+  // Auch ein Teiltreffer hilft, solange er eindeutig ist.
+  const hits = [...prices.entries()].filter(([, p]) => String(p.itemName || '').toLowerCase().includes(wanted));
+  if (hits.length === 1) return { itemId: hits[0][0], itemName: hits[0][1].itemName };
+  return null;
+}
+
+function showItemHint() {
+  const hint = document.getElementById('mItemHint');
+  const hit = resolveItem(document.getElementById('mItem').value);
+  if (!hit) {
+    hint.textContent = prices.size
+      ? 'Name aus der Liste wählen oder Item-ID eintippen.'
+      : 'Katalog noch nicht geladen — Item-ID eintippen oder oben aktualisieren.';
+    return;
+  }
+  const market = prices.get(hit.itemId)?.marketPrice;
+  hint.textContent = market
+    ? `${hit.itemName} (ID ${hit.itemId}) — Marktpreis ${fmtMoney(market)}`
+    : `${hit.itemName} (ID ${hit.itemId})`;
+}
+
 // ---------- Key ----------
 
 // Derselbe Key wie in den Scanner-Einstellungen, nur hier direkt erreichbar:
@@ -328,7 +518,7 @@ function saveKey() {
 
 // ---------- Torn-Log ----------
 
-async function importFromLog() {
+async function importFromLog({ quiet = false } = {}) {
   const settings = loadSettings();
   if (!settings.tornKey) {
     setStatus('Kein Torn-Key hinterlegt — trag ihn im Feld darüber ein und speichere.', 'error');
@@ -453,12 +643,14 @@ async function importFromLog() {
     if (pendingImport.length) teile.push(`${pendingImport.length} Vorgänge zum Übernehmen`);
     if (merged.added) teile.push(`${merged.added} neue Angebote`);
     if (merged.updated) teile.push(`${merged.updated} Angebote mit neuem Status`);
-    setStatus(
-      teile.length
-        ? `${teile.join(', ')}.`
-        : 'Nichts erkannt. Der Bericht zeigt, welche Kategorien dein Log enthält.',
-      teile.length ? 'ok' : 'error',
-    );
+    if (!quiet) {
+      setStatus(
+        teile.length
+          ? `${teile.join(', ')}.`
+          : 'Nichts erkannt. Der Bericht zeigt, welche Kategorien dein Log enthält.',
+        teile.length ? 'ok' : 'error',
+      );
+    }
   } catch (err) {
     report.hidden = false;
     report.textContent = err instanceof TornLogError
@@ -470,11 +662,56 @@ async function importFromLog() {
   }
 }
 
-function applyImport() {
+/**
+ * Ein Knopf fuer den ganzen Weg: Kurse, Log lesen, uebernehmen.
+ *
+ * Der ausfuehrliche Bericht entsteht dabei weiterhin - er steht im Panel
+ * darunter, falls etwas fehlt. Hier oben steht nur das Ergebnis.
+ */
+async function syncNow({ silent = false } = {}) {
+  const btn = document.getElementById('syncBtn');
+  const msg = document.getElementById('syncMsg');
+  const settings = loadSettings();
+
+  btn.disabled = true;
+  try {
+    const priceState = await loadPrices();
+    fillItemList();
+
+    if (!settings.tornKey) {
+      // Ohne Key laesst sich der Log nicht lesen - bewerten geht trotzdem.
+      render();
+      msg.textContent = priceState.from === 'error'
+        ? 'Kein Torn-Key hinterlegt, und die Kurse waren nicht erreichbar.'
+        : 'Kurse aktualisiert. Für den Log-Import fehlt der Torn-Key — siehe Import-Panel.';
+      if (!silent) document.getElementById('importPanel').open = true;
+      return;
+    }
+
+    msg.textContent = 'Lese Torn-Log…';
+    await importFromLog({ quiet: true });
+
+    const before = events.length;
+    if (pendingImport.length) applyImport({ quiet: true });
+    const added = events.length - before;
+
+    render();
+    const stamp = new Date().toLocaleTimeString('de-DE');
+    msg.textContent = `${stamp}: ${added} neue Vorgänge, ${offers.length} Angebote bekannt.`
+      + (priceState.from === 'error' ? ' Kurse waren nicht erreichbar.' : '');
+  } catch (err) {
+    msg.textContent = `Aktualisieren fehlgeschlagen: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function applyImport({ quiet = false } = {}) {
   const { added, duplicates, invalid } = addEvents(pendingImport);
   pendingImport = [];
   document.getElementById('applyImportBtn').disabled = true;
   reload();
+  if (quiet) return;
   setStatus(
     `${added} übernommen, ${duplicates} bereits vorhanden${invalid ? `, ${invalid} unbrauchbar` : ''}.`,
     'ok',
@@ -506,28 +743,122 @@ function backfillNames(itemNames) {
 
 // ---------- Manuell, Sicherung ----------
 
-function addManual() {
-  const dateValue = document.getElementById('mDate').value;
-  const event = makeEvent({
-    ts: dateValue ? new Date(`${dateValue}T12:00:00`).getTime() : Date.now(),
-    kind: document.getElementById('mKind').value,
-    itemId: Number(document.getElementById('mItemId').value),
-    itemName: document.getElementById('mItemName').value.trim() || undefined,
-    quantity: Number(document.getElementById('mQuantity').value),
-    unitPrice: Number(document.getElementById('mUnitPrice').value),
-    source: 'manual',
-  });
+/** Datum eines Ereignisses im Format des date-Feldes. */
+function dateInputValue(ts) {
+  const d = new Date(ts);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
-  const { added, invalid } = addEvents([event]);
-  const msg = document.getElementById('manualMsg');
+function manualForm() {
+  return {
+    kind: document.getElementById('mKind'),
+    item: document.getElementById('mItem'),
+    quantity: document.getElementById('mQuantity'),
+    unitPrice: document.getElementById('mUnitPrice'),
+    date: document.getElementById('mDate'),
+    submit: document.getElementById('addManualBtn'),
+    cancel: document.getElementById('cancelEditBtn'),
+    msg: document.getElementById('manualMsg'),
+    summary: document.getElementById('manualSummary'),
+  };
+}
+
+/** Zurueck aus dem Bearbeiten-Modus ins Anlegen. */
+function stopEditing() {
+  const f = manualForm();
+  editingId = null;
+  f.submit.textContent = 'Eintrag anlegen';
+  f.cancel.hidden = true;
+  f.summary.textContent = 'Eintrag von Hand erfassen';
+  f.item.value = '';
+  f.unitPrice.value = '';
+  f.quantity.value = '1';
+  f.msg.textContent = '';
+  showItemHint();
+}
+
+/**
+ * Laedt einen vorhandenen Eintrag ins Formular.
+ *
+ * Ein Zahlendreher im Preis war bisher nur ueber Loeschen und Neuanlegen zu
+ * beheben - und dabei verliert ein importierter Vorgang seine Referenz und
+ * kommt beim naechsten Import erneut herein.
+ */
+function startEditing(id) {
+  const event = events.find((e) => e.id === id);
+  if (!event) return;
+
+  const f = manualForm();
+  editingId = id;
+  f.kind.value = event.kind;
+  f.item.value = event.itemName && !/^Item \d+$/.test(event.itemName)
+    ? event.itemName
+    : String(event.itemId);
+  f.quantity.value = String(event.quantity);
+  f.unitPrice.value = String(event.unitPrice);
+  f.date.value = dateInputValue(event.ts);
+
+  f.submit.textContent = 'Änderung speichern';
+  f.cancel.hidden = false;
+  f.summary.textContent = `Eintrag ändern: ${event.itemName}`;
+  f.msg.textContent = event.source === 'torn-log'
+    ? 'Aus dem Torn-Log importiert — deine Änderung bleibt beim nächsten Import erhalten.'
+    : '';
+
+  document.getElementById('manualPanel').open = true;
+  document.getElementById('manualPanel').scrollIntoView({ block: 'center' });
+  showItemHint();
+}
+
+function readManualForm() {
+  const f = manualForm();
+  const hit = resolveItem(f.item.value);
+  if (!hit) return { error: 'Item nicht erkannt — Name aus der Liste wählen oder Item-ID eintippen.' };
+
+  const dateValue = f.date.value;
+  return {
+    fields: {
+      ts: dateValue ? new Date(`${dateValue}T12:00:00`).getTime() : Date.now(),
+      kind: f.kind.value,
+      itemId: hit.itemId,
+      itemName: hit.itemName,
+      quantity: Number(f.quantity.value),
+      unitPrice: Number(f.unitPrice.value),
+    },
+  };
+}
+
+function submitManual() {
+  const f = manualForm();
+  const { fields, error } = readManualForm();
+  if (error) {
+    f.msg.textContent = error;
+    return;
+  }
+
+  if (editingId) {
+    const { changed } = updateEvent(editingId, fields);
+    if (!changed) {
+      f.msg.textContent = 'Menge und Preis müssen gesetzt sein.';
+      return;
+    }
+    stopEditing();
+    reload();
+    setStatus('Eintrag geändert.', 'ok');
+    return;
+  }
+
+  const { added, invalid } = addEvents([makeEvent({ ...fields, source: 'manual' })]);
   if (added) {
-    msg.textContent = 'Angelegt.';
-    document.getElementById('mItemId').value = '';
-    document.getElementById('mUnitPrice').value = '';
+    f.item.value = '';
+    f.unitPrice.value = '';
+    f.msg.textContent = 'Angelegt.';
+    showItemHint();
     reload();
   } else {
-    msg.textContent = invalid
-      ? 'Item-ID, Menge und Preis müssen gesetzt sein.'
+    f.msg.textContent = invalid
+      ? 'Menge und Preis müssen gesetzt sein.'
       : 'Eintrag existiert bereits.';
   }
 }
@@ -577,9 +908,23 @@ function init() {
     document.getElementById('ledgerTornKey').value = '';
     saveKey();
   });
-  document.getElementById('importLogBtn').addEventListener('click', importFromLog);
-  document.getElementById('applyImportBtn').addEventListener('click', applyImport);
-  document.getElementById('addManualBtn').addEventListener('click', addManual);
+  document.getElementById('importLogBtn').addEventListener('click', () => importFromLog());
+  document.getElementById('applyImportBtn').addEventListener('click', () => applyImport());
+  document.getElementById('syncBtn').addEventListener('click', () => syncNow());
+  document.getElementById('buyerCheckBtn').addEventListener('click', checkBuyers);
+  document.getElementById('addManualBtn').addEventListener('click', submitManual);
+  document.getElementById('cancelEditBtn').addEventListener('click', stopEditing);
+  document.getElementById('mItem').addEventListener('input', showItemHint);
+  document.getElementById('mItem').addEventListener('change', showItemHint);
+
+  const auto = document.getElementById('ledgerAutoImport');
+  auto.checked = Boolean(loadSettings().ledgerAutoImport);
+  auto.addEventListener('change', () => {
+    saveSettings({ ...loadSettings(), ledgerAutoImport: auto.checked });
+    setStatus(auto.checked
+      ? 'Wird beim Öffnen der Seite automatisch aktualisiert.'
+      : 'Automatisches Aktualisieren aus.', 'ok');
+  });
   document.getElementById('exportBtn').addEventListener('click', exportLedger);
   document.getElementById('applyTextBtn').addEventListener('click', applyPastedJson);
   document.getElementById('importFileBtn').addEventListener('click', () => {
@@ -593,15 +938,26 @@ function init() {
     setStatus('Ledger geleert.', 'ok');
   });
 
-  // Loeschen einzelner Kaeufe laeuft ueber Delegation, weil die Tabelle
-  // bei jeder Aenderung neu gebaut wird.
-  document.getElementById('openTable').addEventListener('click', (ev) => {
-    const id = ev.target?.dataset?.del;
-    if (!id) return;
-    events = removeEvent(id);
+  // Aendern und Loeschen laufen ueber Delegation, weil die Tabellen bei jeder
+  // Aenderung neu gebaut werden.
+  const rowActions = (ev) => {
+    const editId = ev.target?.dataset?.edit;
+    if (editId) {
+      startEditing(editId);
+      return;
+    }
+    const delId = ev.target?.dataset?.del;
+    if (!delId) return;
+    const event = events.find((e) => e.id === delId);
+    if (event && !confirm(`${event.kind === 'buy' ? 'Kauf' : 'Verkauf'} von `
+      + `${event.quantity}× ${event.itemName} löschen?`)) return;
+    if (editingId === delId) stopEditing();
+    events = removeEvent(delId);
     render();
-    setStatus('Position gelöscht.', 'ok');
-  });
+    setStatus('Eintrag gelöscht.', 'ok');
+  };
+  document.getElementById('openTable').addEventListener('click', rowActions);
+  document.getElementById('salesTable').addEventListener('click', rowActions);
 
   document.getElementById('offerFilter').addEventListener('change', renderOffers);
 
@@ -631,6 +987,21 @@ function init() {
   // Bei leerem Ledger fuehren sonst vier Null-Kacheln und zwei leere Tabellen,
   // bevor man ueberhaupt zum Einrichten kommt.
   document.getElementById('importPanel').open = events.length === 0;
+
+  // Kurse aus dem Zwischenspeicher kosten nichts und fuellen sofort die
+  // Wertspalten. Nur wenn nichts Frisches dasteht, geht ein Request raus -
+  // und auch das nur, wenn ueberhaupt Bestand da ist oder von Hand erfasst
+  // werden koennte.
+  const settings = loadSettings();
+  if (settings.ledgerAutoImport && settings.tornKey) {
+    syncNow({ silent: true });
+  } else {
+    loadPrices().then(() => {
+      fillItemList();
+      showItemHint();
+      render();
+    });
+  }
 }
 
 init();

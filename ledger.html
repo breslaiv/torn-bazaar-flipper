@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bazaar Flip">
 <meta name="format-detection" content="telephone=no">
-<meta name="app-build" content="8">
+<meta name="app-build" content="9">
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'none';
   script-src 'self';
@@ -42,13 +42,22 @@
     <!-- Die Optionen baut ledgerPage.js aus PERIODS: eine Liste, die auch die
          Rechnung benutzt, kann nicht von ihr abweichen. -->
     <select id="periodSelect"></select>
+    <!-- Ein Knopf statt vier Schritten: liest den Log, uebernimmt das
+         Gefundene und bewertet den Bestand. Der ausfuehrliche Bericht bleibt
+         unten im Panel, fuer den Fall, dass etwas fehlt. -->
+    <button id="syncBtn" class="primary">Aktualisieren</button>
   </div>
+  <p class="hint" id="syncMsg"></p>
 
   <div class="tiles" id="tiles"></div>
 
   <div class="panel">
     <h2>Offene Positionen (<span id="openCount">0</span>)</h2>
     <p class="hint">Gekauft, aber noch nicht verkauft — hier liegt dein Kapital. Unabhängig vom Zeitraum: ein alter Kauf bindet es weiterhin.</p>
+    <div class="actions">
+      <button id="buyerCheckBtn">Ankaufspreise prüfen</button>
+      <span id="valuationMsg" class="hint"></span>
+    </div>
     <div class="table-wrap">
       <table id="openTable" class="cards"><thead></thead><tbody></tbody></table>
     </div>
@@ -114,6 +123,11 @@
       <button id="saveKeyBtn">Key speichern</button>
       <button id="clearKeyBtn">Key löschen</button>
     </div>
+    <label class="field check">
+      <input type="checkbox" id="ledgerAutoImport">
+      Beim Öffnen der Seite automatisch aktualisieren
+      <span class="hint">Kostet bei jedem Öffnen einen Zugriff mit deinem Full-Access-Key.</span>
+    </label>
     <div class="actions">
       <button id="importLogBtn" class="primary">Log lesen und prüfen</button>
       <button id="applyImportBtn" disabled>Gefundene übernehmen</button>
@@ -121,8 +135,8 @@
     <pre class="raw" id="importReport" hidden></pre>
   </details>
 
-  <details class="panel">
-    <summary>Eintrag von Hand erfassen</summary>
+  <details class="panel" id="manualPanel">
+    <summary id="manualSummary">Eintrag von Hand erfassen</summary>
     <p class="hint">Für alles, was der Log nicht hergibt — etwa Trades mit mehreren Items.</p>
     <div class="grid">
       <label class="field">Art
@@ -131,17 +145,19 @@
           <option value="sell">Verkauf</option>
         </select>
       </label>
-      <label class="field">Item-ID
-        <input type="number" id="mItemId" min="1" step="1">
-      </label>
-      <label class="field">Itemname
-        <input type="text" id="mItemName" placeholder="optional">
+      <label class="field">Item
+        <!-- Name tippen und aus dem Katalog waehlen; eine reine Zahl gilt
+             weiterhin als Item-ID. -->
+        <input type="text" id="mItem" list="itemList" placeholder="Name oder ID"
+          autocomplete="off" autocapitalize="off" spellcheck="false">
+        <datalist id="itemList"></datalist>
+        <span class="hint" id="mItemHint">Katalog von weav3r, ohne Key.</span>
       </label>
       <label class="field">Menge
-        <input type="number" id="mQuantity" min="1" step="1" value="1">
+        <input type="number" id="mQuantity" min="1" step="1" value="1" inputmode="numeric">
       </label>
       <label class="field">Preis pro Stück ($)
-        <input type="number" id="mUnitPrice" min="0" step="1">
+        <input type="number" id="mUnitPrice" min="0" step="1" inputmode="numeric">
       </label>
       <label class="field">Datum
         <input type="date" id="mDate">
@@ -149,6 +165,7 @@
     </div>
     <div class="actions">
       <button id="addManualBtn" class="primary">Eintrag anlegen</button>
+      <button id="cancelEditBtn" hidden>Abbrechen</button>
       <span id="manualMsg" class="hint"></span>
     </div>
   </details>
@@ -179,6 +196,6 @@
   <span id="status"></span>
 </div>
 
-<script type="module" src="js/ledgerPage.js?v=8"></script>
+<script type="module" src="js/ledgerPage.js?v=9"></script>
 </body>
 </html>
