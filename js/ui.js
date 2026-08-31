@@ -35,6 +35,17 @@ export const COLUMNS = [
 
 const TEXT_COLUMNS = new Set(['itemName', 'sellerName', 'buyerName']);
 
+// Nur echte Web-Adressen. Ein Muster wie javascript:… kaeme zwar aus dem
+// eigenen localStorage, hat in einem href aber trotzdem nichts zu suchen.
+const HTTP_URL = /^https?:\/\//i;
+
+/** Gegencheck-Adresse fuer ein Item, oder null wenn kein brauchbares Muster gesetzt ist. */
+export function itemUrl(template, itemId) {
+  if (!template || !HTTP_URL.test(template.trim())) return null;
+  if (!Number.isFinite(Number(itemId))) return null;
+  return template.trim().replace('{ITEM_ID}', encodeURIComponent(itemId));
+}
+
 function tags(row) {
   const out = [];
   if (row.sponsored) out.push('<span class="tag">gesponsert</span>');
@@ -50,10 +61,19 @@ function personCell(id, name, href) {
   return `<a href="${href}${id}" target="_blank" rel="noopener">${escapeHtml(name || id)}</a>`;
 }
 
-function cellContent(col, row) {
+function cellContent(col, row, opts) {
   switch (col.type) {
-    case 'item':
-      return `${escapeHtml(row.itemName)}${tags(row)}`;
+    case 'item': {
+      const name = escapeHtml(row.itemName);
+      const href = itemUrl(opts.itemUrlTemplate, row.itemId);
+      // Der Itemname ist selbst der Link: kostet keine Zeile und ist auf dem
+      // Handy ein grosszuegiges Tippziel.
+      const head = href
+        ? `<a class="item-link" href="${escapeHtml(href)}" target="_blank" rel="noopener">`
+          + `${name}<span class="ext" aria-hidden="true">&#8599;</span></a>`
+        : name;
+      return `${head}${tags(row)}`;
+    }
     case 'seller':
       return personCell(row.sellerId, row.sellerName, 'https://www.torn.com/bazaar.php?userId=');
     case 'buyer': {
@@ -76,7 +96,7 @@ function cellContent(col, row) {
 }
 
 /** Reine Funktion, damit sich das Markup ohne DOM testen laesst. */
-export function rowsToHtml(rows) {
+export function rowsToHtml(rows, opts = {}) {
   if (!rows.length) {
     return `<tr><td colspan="${COLUMNS.length}" class="left empty"><span class="val">Keine Treffer.</span></td></tr>`;
   }
@@ -88,7 +108,8 @@ export function rowsToHtml(rows) {
       if (col.strong) classes.push('strong');
       if (col.profit) classes.push(row.profitPerUnit >= 0 ? 'pos' : 'neg');
       if (col.key === 'sellNet' && row.sellNet === row.reference) classes.push('redundant');
-      return `<td class="${classes.join(' ')}" data-label="${col.label}"><span class="val">${cellContent(col, row)}</span></td>`;
+      return `<td class="${classes.join(' ')}" data-label="${col.label}">`
+        + `<span class="val">${cellContent(col, row, opts)}</span></td>`;
     }).join('');
     return `<tr>${cells}</tr>`;
   }).join('');
@@ -133,11 +154,11 @@ export function renderHead() {
   if (select) select.innerHTML = sortOptionsToHtml();
 }
 
-export function renderRows(rows) {
+export function renderRows(rows, opts = {}) {
   const count = document.getElementById('rowCount');
   if (count) count.textContent = String(rows.length);
   const tbody = document.querySelector('#results tbody');
-  if (tbody) tbody.innerHTML = rowsToHtml(rows);
+  if (tbody) tbody.innerHTML = rowsToHtml(rows, opts);
 }
 
 /**

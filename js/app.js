@@ -12,6 +12,7 @@ const BOOLEAN_FIELDS = new Set(['requireNonNegativeRating']);
 
 let currentRows = [];
 let sorter = null;
+let renderOpts = {};
 let controller = null;
 let refreshTimer = null;
 
@@ -25,6 +26,10 @@ function formToSettings() {
     else settings[key] = el.value;
   }
   return settings;
+}
+
+function refreshRenderOpts(settings = loadSettings()) {
+  renderOpts = { itemUrlTemplate: settings.w3bItemUrl };
 }
 
 function settingsToForm(settings) {
@@ -64,6 +69,7 @@ function summarise(rows, stats, settings) {
 async function runScan() {
   if (controller) return;
   const settings = saveSettings(formToSettings());
+  refreshRenderOpts(settings);
 
   controller = new AbortController();
   setBusy(true);
@@ -122,6 +128,7 @@ function syncModeVisibility() {
 
 function init() {
   settingsToForm(loadSettings());
+  refreshRenderOpts();
   syncModeVisibility();
   renderHead();
 
@@ -132,7 +139,8 @@ function init() {
   document.getElementById('scanMode').addEventListener('change', syncModeVisibility);
 
   document.getElementById('saveBtn').addEventListener('click', () => {
-    saveSettings(formToSettings());
+    refreshRenderOpts(saveSettings(formToSettings()));
+    sorter.resort();
     scheduleAutoRefresh();
     setStatus('Einstellungen gespeichert.', 'ok');
   });
@@ -141,6 +149,7 @@ function init() {
     if (!confirm('Alle Einstellungen inklusive gespeicherter Keys zurücksetzen?')) return;
     clearSettings();
     settingsToForm(DEFAULTS);
+    refreshRenderOpts(DEFAULTS);
     syncModeVisibility();
     setStatus('Zurückgesetzt.', 'ok');
   });
@@ -153,7 +162,7 @@ function init() {
 
   sorter = installSorting(() => currentRows, (sorted) => {
     currentRows = sorted;
-    renderRows(sorted);
+    renderRows(sorted, renderOpts);
   });
 
   scheduleAutoRefresh();

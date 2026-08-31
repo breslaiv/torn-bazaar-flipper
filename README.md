@@ -57,6 +57,29 @@ Zwei optionale Keys, beide nur im `localStorage` des Browsers und nie im Reposit
 Bricht ein Scan mit einem Netzwerkfehler ab: `diagnose.html` öffnen und **Alle Routen
 testen**. Die Seite geht jede benutzte Route einzeln durch und zeigt, woran es hängt.
 
+## Gegencheck über W3B
+
+Der Itemname jeder Trefferzeile verlinkt auf die W3B-Seite zu diesem Item — dort lassen sich
+Listings und Ankaufspreise gegenprüfen, bevor Geld fließt. Auf dem Handy ist die ganze
+Kartenüberschrift das Tippziel, erkennbar am Pfeil rechts; die Zeile kostet keinen zusätzlichen
+Platz.
+
+Die Adresse steht in den Einstellungen unter *Gegencheck*, Vorgabe:
+
+```
+https://weav3r.dev/marketplace/{ITEM_ID}
+```
+
+**Diese URL ist eine Annahme, keine belegte Tatsache.** Die OpenAPI-Spec beschreibt nur die
+API-Routen (`/api/marketplace/{itemId}`), nicht die Seiten der Weboberfläche, und aus der
+Entwicklungsumgebung war `weav3r.dev` nicht erreichbar. Die Vorgabe spiegelt deshalb die
+API-Route. Stimmt sie nicht, ist es ein Feld statt einer Codeänderung: Muster anpassen,
+speichern, fertig — `{ITEM_ID}` wird ersetzt, ein leeres Feld schaltet den Link ab.
+
+Angenommen werden nur `http://`- und `https://`-Adressen. Ein Muster wie `javascript:…` käme
+zwar aus dem eigenen `localStorage`, landet aber trotzdem nicht in einem `href`.
+
+
 ## Sicherheit der API-Keys
 
 GitHub Pages verlangt im Free-Tier ein öffentliches Repository. **Das macht die Keys nicht
@@ -204,8 +227,9 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-72 Tests über Response-Parsing, Vorauswahl, Profit-Rechnung, Scan-Ablauf, Markup und
-Sortierung sowie die Key-, CSP-, Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
+80 Tests über Response-Parsing, Vorauswahl, Profit-Rechnung, Scan-Ablauf, Markup,
+Sortierung und Link-Erzeugung sowie die Key-, CSP-, Workflow- und Mobile-Prüfungen aus
+den Abschnitten oben.
 
 Der Sortier-Controller wird gegen einen kleinen DOM-Stub getestet (`tests/sorting.test.mjs`),
 weil dort ein Fehler saß, den die reine Sortierfunktion nicht zeigen konnte.

@@ -264,7 +264,7 @@ details.panel:not([open]) { padding: 6px 12px; }
   #results tr {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 10px 14px;
+    gap: 8px 14px;
     background: var(--panel-2);
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -299,16 +299,34 @@ details.panel:not([open]) { padding: 6px 12px; }
 
   #results td:first-child {
     grid-column: 1 / -1;
-    padding-bottom: 8px;
+    padding-bottom: 4px;
     border-bottom: 1px solid var(--border);
   }
   #results td:first-child::before { content: none; }
   #results td:first-child > .val { font-size: 16px; font-weight: 600; }
 
+  /* Als reiner Text um den Namen herum waere der Link ein Tippziel von rund
+     70x20px. Auf dem Handy nimmt er deshalb die volle Kartenbreite ein, mit
+     dem Pfeil am rechten Rand; das kostet acht Pixel Kartenhoehe. Die
+     gestrichelte Unterstreichung entfaellt dabei - sie liefe sonst quer durch
+     die Karte und saehe aus wie die Trennlinie. */
+  #results td:first-child .item-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 36px;
+    border-bottom: 0;
+  }
+  #results td:first-child .item-link .ext { font-size: 1em; margin-left: 0; }
+
   #results td.strong > .val { font-size: 17px; font-weight: 600; }
 
+  /* Die Leermeldung ist die erste Zelle und wuerde sonst die Formatierung
+     der Kartenueberschrift erben - fett und mit Trennlinie darunter. */
+  #results td.empty { border-bottom: 0; padding: 0; }
   #results td.empty::before { content: none; }
-  #results td.empty > .val { color: var(--muted); }
+  #results td.empty > .val { font-size: 14px; font-weight: 400; color: var(--muted); }
 
   #results tr:has(td.empty) { background: none; border: 0; padding: 0; }
 
@@ -336,3 +354,13 @@ details.panel:not([open]) { padding: 6px 12px; }
 @media (max-width: 360px) {
   #results tr { grid-template-columns: 1fr; }
 }
+
+/* Gegencheck-Link am Itemnamen: erkennbar, aber ohne die Ueberschrift
+   in Linkblau zu ertraenken. */
+.item-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dashed var(--border);
+}
+.item-link:hover { border-bottom-color: var(--accent); }
+.item-link .ext { color: var(--muted); font-size: .8em; margin-left: 3px; }

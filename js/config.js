@@ -19,6 +19,11 @@ export const DEFAULTS = {
 
   scanMode: 'flip',            // 'flip' = Bazaar -> Trader | 'dollar' = $1-Bazaare
 
+  // Ziel des Gegencheck-Links am Itemnamen. {ITEM_ID} wird ersetzt, leer = kein
+  // Link. Die OpenAPI-Spec beschreibt nur die API-Routen, nicht die Seiten der
+  // Weboberflaeche - deshalb konfigurierbar statt fest verdrahtet.
+  w3bItemUrl: 'https://weav3r.dev/marketplace/{ITEM_ID}',
+
   // Verkaufsseite
   referenceMode: 'trader',     // 'trader' = Ankaufspreis eines Kaeufers | 'market_price'
   sellFactor: 100,             // Sicherheitsabschlag auf die Referenz, in %

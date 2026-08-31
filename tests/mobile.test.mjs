@@ -56,6 +56,15 @@ test('die Karte ist zweispaltig statt zehn Zeilen untereinander', () => {
   assert.match(mobile, /#results td\.redundant \{ display: none; \}/);
 });
 
+test('der Gegencheck-Link ist ein brauchbares Tippziel', () => {
+  // Um den blossen Itemnamen gelegt waere er rund 70x20px gross.
+  const mobile = css.split('@media (max-width: 720px)')[1];
+  const rule = mobile.match(/#results td:first-child \.item-link \{([^}]+)\}/);
+  assert.ok(rule, 'keine Mobile-Regel fuer den Item-Link');
+  assert.match(rule[1], /display:\s*flex/);
+  assert.match(rule[1], /min-height:\s*36px/);
+});
+
 test('der Statustext haelt die Aktionsleiste einzeilig, ausser bei Fehlern', () => {
   const mobile = css.split('@media (max-width: 720px)')[1];
   assert.match(mobile, /\.actionbar #status \{[^}]*text-overflow: ellipsis/);

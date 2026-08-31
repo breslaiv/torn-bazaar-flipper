@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  COLUMNS, headToHtml, rowsToHtml, sortOptionsToHtml, sortRows, fmtMoney, fmtPct, escapeHtml,
+  COLUMNS, headToHtml, rowsToHtml, sortOptionsToHtml, sortRows, itemUrl,
+  fmtMoney, fmtPct, escapeHtml,
 } from '../js/ui.js';
+
+const W3B = { itemUrlTemplate: 'https://weav3r.dev/marketplace/{ITEM_ID}' };
 
 const row = {
   itemId: 206,
@@ -107,4 +110,54 @@ test('Formatierung', () => {
   assert.equal(fmtMoney(NaN), '—');
   assert.equal(fmtPct(11.43), '11.4%');
   assert.equal(escapeHtml('<&">'), '&lt;&amp;&quot;&gt;');
+});
+
+
+test('itemUrl setzt die Item-ID ein', () => {
+  assert.equal(itemUrl('https://weav3r.dev/marketplace/{ITEM_ID}', 206),
+    'https://weav3r.dev/marketplace/206');
+  assert.equal(itemUrl('https://x.dev/i?id={ITEM_ID}', 4), 'https://x.dev/i?id=4');
+});
+
+test('itemUrl lehnt alles ab, was keine Web-Adresse ist', () => {
+  // Das Muster kommt aus dem eigenen localStorage, gehoert aber trotzdem
+  // nicht ungeprueft in ein href.
+  assert.equal(itemUrl('javascript:alert(1)', 206), null);
+  assert.equal(itemUrl('data:text/html,<script>x</script>', 206), null);
+  assert.equal(itemUrl('', 206), null);
+  assert.equal(itemUrl(undefined, 206), null);
+  assert.equal(itemUrl('https://weav3r.dev/marketplace/{ITEM_ID}', 'nope'), null);
+});
+
+test('der Itemname verlinkt auf die Gegencheck-Seite', () => {
+  const html = rowsToHtml([row], W3B);
+  assert.match(html, /<a class="item-link" href="https:\/\/weav3r\.dev\/marketplace\/206"/);
+  assert.match(html, /target="_blank" rel="noopener"/);
+  assert.match(html, />Xanax</);
+});
+
+test('ohne Muster bleibt der Itemname schlichter Text', () => {
+  const html = rowsToHtml([row], { itemUrlTemplate: '' });
+  assert.ok(!html.includes('item-link'));
+  assert.match(html, />Xanax</);
+  // Auch ohne uebergebene Optionen darf nichts brechen.
+  assert.ok(!rowsToHtml([row]).includes('item-link'));
+});
+
+test('ein boesartiges Muster landet nicht im href', () => {
+  const html = rowsToHtml([row], { itemUrlTemplate: 'javascript:alert(1)' });
+  assert.ok(!html.includes('javascript:'));
+  assert.ok(!html.includes('item-link'));
+});
+
+test('Anfuehrungszeichen im Muster brechen das Attribut nicht auf', () => {
+  const html = rowsToHtml([row], { itemUrlTemplate: 'https://x.dev/{ITEM_ID}" onmouseover="alert(1)' });
+  assert.ok(!html.includes('onmouseover="alert(1)"'));
+  assert.match(html, /&quot;/);
+});
+
+test('Marker stehen weiterhin neben dem verlinkten Namen', () => {
+  const html = rowsToHtml([{ ...row, sponsored: true }], W3B);
+  assert.match(html, /item-link/);
+  assert.match(html, /gesponsert/);
 });
