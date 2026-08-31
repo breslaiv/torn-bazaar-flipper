@@ -1,7 +1,7 @@
-import { loadSettings, saveSettings } from './storage.js';
-import { fetchHealth, fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js';
-import { fetchKeyInfo } from './torn.js';
-import { setStatus, fmtMoney } from './ui.js';
+import { loadSettings, saveSettings } from './storage.js?v=1';
+import { fetchHealth, fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js?v=1';
+import { fetchKeyInfo } from './torn.js?v=1';
+import { setStatus, fmtMoney, showVersion } from './ui.js?v=1';
 
 const reportEl = document.getElementById('report');
 const lines = [];
@@ -118,6 +118,7 @@ async function testTorn() {
 }
 
 function init() {
+  showVersion();
   document.getElementById('weav3rKey').value = loadSettings().weav3rKey;
   document.getElementById('runAll').addEventListener('click', runAll);
   document.getElementById('testTorn').addEventListener('click', testTorn);

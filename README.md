@@ -179,6 +179,33 @@ wurde. Der Export läuft über eine Blob-URL; dass die unter der strengen CSP du
 im Browser gegengeprüft.
 
 
+## Versionsstempel
+
+GitHub Pages liefert Dateien mit `max-age=600` aus, und iOS hält eine zum Home-Bildschirm
+hinzugefügte Seite noch hartnäckiger fest. Zweimal wurde deshalb ein längst behobener Fehler
+erneut gemeldet — der Browser führte schlicht den alten Stand aus.
+
+Deshalb trägt **jeder relative Import** einen Versionsstempel:
+
+```js
+import { makeEvent } from './ledger.js?v=1';
+```
+
+Nur das Entry-Script zu versionieren reicht nicht: dessen Importe lösen relativ zur
+Modul-URL *ohne* Query auf und blieben im Cache. Gestempelt wird mit
+
+```bash
+python3 tools/version-assets.py     # nach dem Hochzählen von APP_VERSION in js/config.js
+```
+
+`tests/version.test.mjs` hält fest, dass kein Import ohne aktuellen Stempel durchrutscht —
+sonst wäre die Lücke genau dort, wo man sie nicht sucht.
+
+Jede Seite zeigt den Build oben im Kopf, und der Importbericht trägt ihn als erste Zeile.
+Damit lässt sich „geht immer noch nicht" in einem Blick auflösen: steht dort ein alter
+Build, ist es der Cache und nicht der Code.
+
+
 ## Sicherheit der API-Keys
 
 GitHub Pages verlangt im Free-Tier ein öffentliches Repository. **Das macht die Keys nicht
@@ -306,7 +333,7 @@ Falls es scheitert, gibt es zwei Wege, die beide nur `js/weav3r.js` betreffen:
 ```
 index.html          Scanner
 diagnose.html       Routen- und CORS-Test gegen den echten Server
-js/config.js        Defaults, Basis-URLs, Rate-Limits
+js/config.js        APP_VERSION, Defaults, Basis-URLs, Rate-Limits
 js/ratelimit.js     Gleitendes 60-Sekunden-Fenster, je Host eine Instanz
 js/weav3r.js        TornW3B-Client: Katalog, Listings, Trader, $1-Bazaare
 js/torn.js          Torn API v2, optional, nur für die Item-Market-Gegenprobe
@@ -322,6 +349,7 @@ js/tornlog.js       Log-Typen von Torn, serverseitig gefilterter Import, Bericht
 js/table.js         Tabellenbau mit data-label für die Kartenansicht
 js/ledgerPage.js    Verdrahtung der Ledger-Seite
 tools/make-icon.py  erzeugt icon-180.png fuer den iOS-Home-Screen
+tools/version-assets.py  stempelt APP_VERSION in jeden Import
 tests/              node --test, ohne Abhängigkeiten (inkl. Secret-Scan)
 ```
 
@@ -334,7 +362,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-141 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
+146 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Scan-Ablauf,
 Markup, Sortierung, Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung und Persistenz sowie
 die Key-, CSP-, Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
 

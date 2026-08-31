@@ -1,3 +1,5 @@
+import { APP_VERSION } from './config.js?v=1';
+
 const money = new Intl.NumberFormat('en-US');
 
 export function fmtMoney(n) {
@@ -138,6 +140,15 @@ export function sortRows(rows, key, asc) {
     }
     return asc ? (x ?? 0) - (y ?? 0) : (y ?? 0) - (x ?? 0);
   });
+}
+
+/**
+ * Zeigt den Build im Kopf der Seite. Klingt nach Kosmetik, ist aber der
+ * Unterschied zwischen "geht immer noch nicht" und "du laeufst auf Build 3".
+ */
+export function showVersion() {
+  const el = document.getElementById('appVersion');
+  if (el) el.textContent = `Build ${APP_VERSION}`;
 }
 
 export function setStatus(text, kind = '') {

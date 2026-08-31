@@ -1,15 +1,16 @@
-import { loadSettings, saveSettings } from './storage.js';
+import { loadSettings, saveSettings } from './storage.js?v=1';
 import {
   makeEvent, matchFifo, summarise, filterByPeriod, profitByItem,
-} from './ledger.js';
+} from './ledger.js?v=1';
 import {
   loadEvents, saveEvents, addEvents, removeEvent, clearLedger,
   exportJson, parseImport, markExported, lastExport,
-} from './ledgerStore.js';
-import { fetchLog, fetchLogTypes, deriveLogTypes, inspect, TornLogError } from './tornlog.js';
-import { fetchMarketplace } from './weav3r.js';
-import { renderTable } from './table.js';
-import { fmtMoney, fmtPct, setStatus, escapeHtml } from './ui.js';
+} from './ledgerStore.js?v=1';
+import { fetchLog, fetchLogTypes, deriveLogTypes, inspect, TornLogError } from './tornlog.js?v=1';
+import { fetchMarketplace } from './weav3r.js?v=1';
+import { renderTable } from './table.js?v=1';
+import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=1';
+import { APP_VERSION } from './config.js?v=1';
 
 let events = [];
 let pendingImport = [];
@@ -210,6 +211,9 @@ async function importFromLog() {
     backfillNames(itemNames);
 
     const lines = [];
+    // Steht bewusst als erste Zeile: ohne sie laesst sich ein Bericht nicht
+    // dem Code zuordnen, der ihn erzeugt hat.
+    lines.push(`Build ${APP_VERSION} — ${new Date().toLocaleString('de-DE')}`);
     lines.push(`${entries.length} Log-Einträge gelesen, ${result.events.length} als Kauf oder Verkauf erkannt.`);
     lines.push('');
     lines.push('--- Zugeordnete Log-Typen (von Torn benannt) ---');
@@ -363,6 +367,7 @@ function applyPastedJson() {
 }
 
 function init() {
+  showVersion();
   document.getElementById('periodSelect').addEventListener('change', render);
   document.getElementById('saveKeyBtn').addEventListener('click', saveKey);
   document.getElementById('clearKeyBtn').addEventListener('click', () => {

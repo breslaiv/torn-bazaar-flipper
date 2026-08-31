@@ -1,7 +1,7 @@
-import { DEFAULTS } from './config.js';
-import { loadSettings, saveSettings, clearSettings, hasSavedSettings } from './storage.js';
-import { runFlipScan, runDollarScan, verifyWithTorn } from './scan.js';
-import { renderRows, renderHead, setStatus, installSorting, fmtMoney } from './ui.js';
+import { DEFAULTS } from './config.js?v=1';
+import { loadSettings, saveSettings, clearSettings, hasSavedSettings } from './storage.js?v=1';
+import { runFlipScan, runDollarScan, verifyWithTorn } from './scan.js?v=1';
+import { renderRows, renderHead, setStatus, installSorting, fmtMoney, showVersion } from './ui.js?v=1';
 
 const NUMERIC_FIELDS = new Set([
   'sellFactor', 'marketFeePct', 'prescreenPct', 'maxCandidates', 'listingsPerItem',
@@ -130,6 +130,7 @@ function syncModeVisibility() {
 }
 
 function init() {
+  showVersion();
   settingsToForm(loadSettings());
   refreshRenderOpts();
   syncModeVisibility();
