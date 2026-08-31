@@ -78,7 +78,7 @@ function cellContent(col, row) {
 /** Reine Funktion, damit sich das Markup ohne DOM testen laesst. */
 export function rowsToHtml(rows) {
   if (!rows.length) {
-    return `<tr><td colspan="${COLUMNS.length}" class="left empty">Keine Treffer.</td></tr>`;
+    return `<tr><td colspan="${COLUMNS.length}" class="left empty"><span class="val">Keine Treffer.</span></td></tr>`;
   }
   return rows.map((row) => {
     const cells = COLUMNS.map((col) => {
@@ -87,6 +87,7 @@ export function rowsToHtml(rows) {
       else classes.push('num');
       if (col.strong) classes.push('strong');
       if (col.profit) classes.push(row.profitPerUnit >= 0 ? 'pos' : 'neg');
+      if (col.key === 'sellNet' && row.sellNet === row.reference) classes.push('redundant');
       return `<td class="${classes.join(' ')}" data-label="${col.label}"><span class="val">${cellContent(col, row)}</span></td>`;
     }).join('');
     return `<tr>${cells}</tr>`;
@@ -174,4 +175,7 @@ export function installSorting(getRows, onSorted) {
   dirBtn?.addEventListener('click', () => { asc = !asc; apply(); });
 
   apply();
+
+  // resort() erneut aufrufen, sobald sich die Datenbasis geaendert hat.
+  return { resort: apply, state: () => ({ key, asc }) };
 }

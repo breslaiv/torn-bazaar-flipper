@@ -11,6 +11,7 @@ const NUMERIC_FIELDS = new Set([
 const BOOLEAN_FIELDS = new Set(['requireNonNegativeRating']);
 
 let currentRows = [];
+let sorter = null;
 let controller = null;
 let refreshTimer = null;
 
@@ -83,11 +84,11 @@ async function runScan() {
     const { rows, stats } = await scan(settings, { onProgress, signal: controller.signal });
 
     currentRows = rows;
-    renderRows(currentRows);
+    sorter.resort();
 
     if (settings.tornKey && rows.length) {
-      currentRows = await verifyWithTorn(rows, settings, { onProgress, signal: controller.signal });
-      renderRows(currentRows);
+      currentRows = await verifyWithTorn(currentRows, settings, { onProgress, signal: controller.signal });
+      sorter.resort();
     }
 
     setStatus(summarise(currentRows, stats, settings), currentRows.length ? 'ok' : '');
@@ -150,7 +151,7 @@ function init() {
     setStatus('Breche ab…');
   });
 
-  installSorting(() => currentRows, (sorted) => {
+  sorter = installSorting(() => currentRows, (sorted) => {
     currentRows = sorted;
     renderRows(sorted);
   });

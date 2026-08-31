@@ -111,11 +111,17 @@ Die Oberfläche ist für die Nutzung am Telefon gebaut, nicht nur dafür verklei
 
 **Aus der Tabelle werden Karten.** Zehn Spalten sind auf 393 px nicht lesbar. Unter 720 px
 verschwindet die Kopfzeile und jede Trefferzeile wird zu einer Karte: Itemname als
-Überschrift, darunter Label und Wert paarweise, Profit und Gesamt hervorgehoben. Dasselbe
-Markup, nur anderes CSS — die Zell-Labels kommen aus `data-label`, gespeist aus derselben
-Spaltendefinition wie die Kopfzeile in `js/ui.js`. Weil ohne Kopfzeile niemand sortieren
-kann, gibt es darüber ein Auswahlfeld plus Richtungsknopf, das auf dieselbe Sortierfunktion
-geht.
+Überschrift, darunter ein zweispaltiges Raster mit Label über Wert. Kaufseite und
+Verkaufsseite stehen dabei nebeneinander — Bazaar/Kaufpreis, Käufer/Ankauf,
+Profit/Marge, Menge/Gesamt. Dasselbe Markup, nur anderes CSS: die Zell-Labels kommen aus
+`data-label`, gespeist aus derselben Spaltendefinition wie die Kopfzeile in `js/ui.js`.
+Weil ohne Kopfzeile niemand sortieren kann, gibt es darüber ein Auswahlfeld plus
+Richtungsknopf auf derselben Sortierfunktion.
+
+Die Netto-Zelle entfällt auf dem Handy, solange sie den Ankaufspreis nur wiederholt —
+also immer, wenn weder Sicherheitsabschlag noch Gebühr gesetzt sind. Zusammen mit dem
+Raster halbiert das die Kartenhöhe von rund 430 auf 254 px; statt einer Karte sind damit
+drei gleichzeitig im Bild.
 
 **Was sonst noch anders ist:**
 
@@ -198,8 +204,11 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-62 Tests über Response-Parsing, Vorauswahl, Profit-Rechnung, Scan-Ablauf, Markup und
-Sortierung sowie die Key-, CSP- und Mobile-Prüfungen aus den Abschnitten oben.
+72 Tests über Response-Parsing, Vorauswahl, Profit-Rechnung, Scan-Ablauf, Markup und
+Sortierung sowie die Key-, CSP-, Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
+
+Der Sortier-Controller wird gegen einen kleinen DOM-Stub getestet (`tests/sorting.test.mjs`),
+weil dort ein Fehler saß, den die reine Sortierfunktion nicht zeigen konnte.
 
 ## Grenzen
 

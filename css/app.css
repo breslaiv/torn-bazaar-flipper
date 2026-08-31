@@ -255,59 +255,60 @@ details.panel:not([open]) { padding: 6px 12px; }
      dank data-label an der Zelle selbst - ein einziges Markup fuer beides. */
   .table-wrap { max-height: none; overflow: visible; }
 
-  #results, #results tbody, #results tr, #results td { display: block; width: 100%; }
+  #results, #results tbody, #results td { display: block; width: 100%; }
   #results thead { display: none; }
 
+  /* Zweispaltiges Raster statt zehn Zeilen untereinander: Label ueber Wert,
+     das halbiert die Kartenhoehe. Bazaar/Kaufpreis und Kaeufer/Ankauf landen
+     dabei jeweils nebeneinander - Kaufseite links, Verkaufsseite rechts. */
   #results tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 14px;
     background: var(--panel-2);
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 12px 14px;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
   }
 
   #results td {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 14px;
     border: 0;
-    padding: 4px 0;
-    text-align: right;
+    padding: 0;
+    min-width: 0;
+    text-align: left;
     white-space: normal;
   }
   #results td::before {
     content: attr(data-label);
+    display: block;
     color: var(--muted);
-    font-size: 12px;
-    text-align: left;
-    flex: 0 0 auto;
+    font-size: 11px;
+    line-height: 1.35;
   }
-  /* Genau zwei Flex-Kinder pro Zeile - sonst schiebt space-between einen
-     mehrteiligen Wert (Name + Bewertung) in die Mitte. */
   #results td > .val {
-    text-align: right;
-    min-width: 0;
+    display: block;
+    font-size: 15px;
+    text-align: left;
+    overflow-wrap: anywhere;
   }
 
-  /* Itemname als Kartenkopf, ohne Label und ueber die volle Breite. */
+  /* Netto wiederholt den Ankauf, solange kein Abschlag und keine Gebuehr
+     gesetzt sind. Dann ist die Zelle nur Ballast. */
+  #results td.redundant { display: none; }
+
   #results td:first-child {
-    display: block;
-    text-align: left;
-    font-size: 16px;
-    font-weight: 600;
-    padding: 0 0 8px;
-    margin-bottom: 6px;
+    grid-column: 1 / -1;
+    padding-bottom: 8px;
     border-bottom: 1px solid var(--border);
   }
   #results td:first-child::before { content: none; }
-  #results td:first-child > .val { text-align: left; }
+  #results td:first-child > .val { font-size: 16px; font-weight: 600; }
 
-  /* Profit ist der Grund, warum man hinschaut. */
-  #results td.strong { font-size: 17px; font-weight: 600; }
+  #results td.strong > .val { font-size: 17px; font-weight: 600; }
 
-  #results td.empty { text-align: left; }
   #results td.empty::before { content: none; }
+  #results td.empty > .val { color: var(--muted); }
 
   #results tr:has(td.empty) { background: none; border: 0; padding: 0; }
 
@@ -318,14 +319,20 @@ details.panel:not([open]) { padding: 6px 12px; }
   .actionbar #status {
     font-size: 12px;
     line-height: 1.35;
-    max-height: 2.7em;
+    /* Eine Zeile: die Leiste ueberdeckt sonst dauerhaft Trefferflaeche. */
+    white-space: nowrap;
     overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Fehlermeldungen erklaeren etwas und duerfen umbrechen. */
+  .actionbar #status.error {
+    white-space: normal;
+    max-height: 4em;
   }
   pre.raw { font-size: 11px; max-height: 60vh; }
 }
 
 /* Sehr schmal (iPhone SE quer zu Portrait): Labels und Werte untereinander. */
 @media (max-width: 360px) {
-  #results td { flex-wrap: wrap; gap: 2px; }
-  #results td::before { flex: 1 0 100%; }
+  #results tr { grid-template-columns: 1fr; }
 }

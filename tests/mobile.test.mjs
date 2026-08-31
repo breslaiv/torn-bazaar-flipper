@@ -44,6 +44,24 @@ test('die Tabelle wird auf dem Handy zu Karten', () => {
   assert.match(mobile, /\.table-wrap \{ max-height: none; overflow: visible; \}/);
 });
 
+test('die Karte ist zweispaltig statt zehn Zeilen untereinander', () => {
+  const mobile = css.split('@media (max-width: 720px)')[1];
+  const tr = mobile.match(/#results tr \{([^}]+)\}/);
+  assert.ok(tr, 'keine Regel fuer die Kartenzeile');
+  assert.match(tr[1], /display:\s*grid/);
+  assert.match(tr[1], /grid-template-columns:\s*1fr 1fr/);
+  // Der Itemname bleibt Ueberschrift ueber die volle Breite.
+  assert.match(mobile, /#results td:first-child \{[^}]*grid-column: 1 \/ -1/);
+  // Netto wiederholt den Ankauf, solange nichts abgezogen wird.
+  assert.match(mobile, /#results td\.redundant \{ display: none; \}/);
+});
+
+test('der Statustext haelt die Aktionsleiste einzeilig, ausser bei Fehlern', () => {
+  const mobile = css.split('@media (max-width: 720px)')[1];
+  assert.match(mobile, /\.actionbar #status \{[^}]*text-overflow: ellipsis/);
+  assert.match(mobile, /\.actionbar #status\.error \{[^}]*white-space: normal/);
+});
+
 test('ohne sichtbare Kopfzeile gibt es ein Sortierfeld', () => {
   assert.match(html['./index.html'], /id="sortSelect"/);
   assert.match(html['./index.html'], /id="sortDir"/);
