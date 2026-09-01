@@ -4,7 +4,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseArgs, run } from '../tools/collect-local.mjs';
+import { parseArgs, run, reifegrad } from '../tools/collect-local.mjs';
 import { openStore, saveSeries, storeStats, readSeries } from '../tools/store.mjs';
 
 const T0 = Date.UTC(2026, 0, 1, 12, 0, 0);
@@ -167,6 +167,34 @@ test('Abfragen und Fehler werden gebucht, nicht nur die Aenderungen', async () =
   );
   assert.ok(bilanz.errors >= 1, 'der Ausfall der Quelle muss gebucht sein');
   db.close();
+});
+
+test('Reife wird in Zyklen gezaehlt, nicht in Messpunkten', () => {
+  // Ein volles Regal liefert beliebig viele Punkte und verraet nichts ueber
+  // seinen Timer. Wer nach Messpunkten geht, haelt die Datenlage fuer reif,
+  // waehrend ueber die Haelfte der Items noch keinen einzigen Zyklus gezeigt
+  // hat - genau die Verwechslung soll --stats verhindern.
+  const voll = Array.from({ length: 200 }, (_, i) => [T0 + i * 60000, 500]);
+
+  const leerlauf = [];
+  for (let z = 0; z < 5; z++) {
+    const start = T0 + z * 60 * 60000;
+    leerlauf.push([start, 200], [start + 10 * 60000, 0], [start + 25 * 60000, 200]);
+  }
+
+  const r = reifegrad({ 'mex:1': voll, 'mex:2': leerlauf });
+
+  assert.equal(r.reihen, 2);
+  assert.equal(r.stufen[1], 1, 'nur die Reihe mit Leerlauf hat Zyklen');
+  assert.ok(r.zyklen >= 4, `nur ${r.zyklen} Zyklen erkannt`);
+  assert.equal(r.mitTimer, 1, 'zweihundert Punkte ohne Leerlauf ergeben keine Vorhersage');
+});
+
+test('ohne Daten behauptet die Reife nichts', () => {
+  const r = reifegrad({});
+  assert.equal(r.reihen, 0);
+  assert.equal(r.zyklen, 0);
+  assert.equal(r.mitTimer, 0);
 });
 
 test('der Zeitstempel der Quelle zaehlt, nicht die eigene Uhr', async () => {

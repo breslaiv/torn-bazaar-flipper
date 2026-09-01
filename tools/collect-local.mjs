@@ -19,6 +19,7 @@
 
 import { collectOnce, watch } from './collect-travel.mjs';
 import { openStore, saveSeries, readSeries, recordRun, storeStats } from './store.mjs';
+import { findCycles } from '../js/restock.js';
 import { YATA_URL } from '../js/yata.js';
 
 export function parseArgs(argv = []) {
@@ -117,6 +118,31 @@ const fetchYata = async () => {
   return res.json();
 };
 
+/**
+ * Wie reif ist die Datenlage je Reihe?
+ *
+ * Messpunkte sind die falsche Waehrung. Ein Regal, das seit Stunden voll
+ * dasteht, liefert hunderte Punkte und verraet nichts ueber seinen Timer -
+ * gebraucht werden abgeschlossene Nachfuell-Zyklen, und die entstehen nur,
+ * wenn das Regal leerlaeuft. Genau daran haengt, ab wann eine Vorhersage fuer
+ * ein Item ueberhaupt etwas taugt.
+ *
+ * @returns {{reihen:number, zyklen:number, stufen:object, mitTimer:number}}
+ */
+export function reifegrad(series = {}) {
+  const werte = Object.values(series).map((reihe) => findCycles(reihe).filter((z) => !z.open).length);
+  const stufen = {};
+  for (const grenze of [1, 3, 10, 20]) stufen[grenze] = werte.filter((n) => n >= grenze).length;
+  return {
+    reihen: werte.length,
+    zyklen: werte.reduce((a, b) => a + b, 0),
+    stufen,
+    // Vier Zyklen sind die Schwelle, ab der MIN_CHECKS im Modellwettbewerb
+    // ueberhaupt erreichbar wird.
+    mitTimer: werte.filter((n) => n >= 4).length,
+  };
+}
+
 function printStats(db) {
   const s = storeStats(db);
   if (!s.points) {
@@ -128,6 +154,16 @@ function printStats(db) {
   console.log(`von ${new Date(s.first).toISOString()} bis ${new Date(s.last).toISOString()}`);
   console.log(`= ${hours.toFixed(1)} h, im Schnitt ${(s.points / s.series / Math.max(hours, 1)).toFixed(1)} Punkte je Reihe und Stunde`);
   console.log('Das ist die Dichte, die YATA hergibt — nicht die, mit der wir fragen.');
+
+  const r = reifegrad(readSeries(db, { limit: 1000 }));
+  console.log(`\n${r.zyklen} abgeschlossene Nachfüll-Zyklen. Reihen mit mindestens`);
+  for (const [grenze, n] of Object.entries(r.stufen)) {
+    const anteil = r.reihen ? (n / r.reihen) * 100 : 0;
+    console.log(`  ${String(grenze).padStart(2)} Zyklen: ${String(n).padStart(3)} von ${r.reihen}  (${anteil.toFixed(0)} %)`);
+  }
+  console.log(`\n${r.mitTimer} Reihen haben genug Zyklen für eine geprüfte Vorhersage.`);
+  console.log('Zyklen sind die Währung, nicht Messpunkte: ein volles Regal liefert');
+  console.log('beliebig viele Punkte und verrät nichts über seinen Timer.');
 }
 
 async function main() {
