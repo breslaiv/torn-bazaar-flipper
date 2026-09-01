@@ -15,7 +15,7 @@
 //          was er nicht deuten konnte, statt still eine leere Liste zu
 //          liefern.
 
-import { countryCode } from './travel.js?v=11';
+import { countryCode } from './travel.js?v=12';
 
 export class YataError extends Error {
   constructor(message, status = 0) {
@@ -29,10 +29,14 @@ export const YATA_BASE = 'https://yata.yt/api/v1';
 export const YATA_TRAVEL_PATH = '/travel/export/';
 export const YATA_URL = `${YATA_BASE}${YATA_TRAVEL_PATH}`;
 
-// Die CSP dieser Seiten laesst genau einen fremden Host durch. Eine andere
-// Adresse waere im Browser wirkungslos, und der Fehler saehe aus wie ein
-// Netzwerkproblem - deshalb wird sie hier abgefangen und benannt.
-const ALLOWED_HOST = 'yata.yt';
+// Die CSP dieser Seiten laesst genau diese beiden fremden Hosts durch. Eine
+// andere Adresse waere im Browser wirkungslos, und der Fehler saehe aus wie
+// ein Netzwerkproblem - deshalb wird sie hier abgefangen und benannt.
+//
+// weav3r steht dabei, weil deren Website Auslandsvorraete anzeigt. Sobald die
+// Route bekannt ist (die Diagnose-Seite sucht danach), laesst sich die Quelle
+// umstellen, ohne dass etwas neu ausgeliefert werden muss.
+const ALLOWED_HOSTS = ['yata.yt', 'weav3r.dev'];
 
 /**
  * Baut die Abrufadresse aus den Einstellungen.
@@ -54,14 +58,20 @@ export function travelUrl(settings = {}) {
   } catch {
     throw new YataError(`"${raw}" ist keine gültige Adresse.`);
   }
-  if (url.protocol !== 'https:' || url.hostname !== ALLOWED_HOST) {
+  if (url.protocol !== 'https:' || !ALLOWED_HOSTS.includes(url.hostname)) {
     throw new YataError(
-      `Nur https://${ALLOWED_HOST}/… ist erlaubt — die Seite darf laut ihrer eigenen `
-      + 'Sicherheitsregel (CSP) keine anderen Server ansprechen.',
+      `Nur ${ALLOWED_HOSTS.map((h) => `https://${h}/…`).join(' oder ')} ist erlaubt — die Seite `
+      + 'darf laut ihrer eigenen Sicherheitsregel (CSP) keine anderen Server ansprechen.',
     );
   }
-  url.search = '';
-  url.hash = '';
+
+  // Der Zwischenspeicher-Hinweis gilt nur fuer YATA: dort liefert eine
+  // Adresse mit Parametern eine andere, moeglicherweise aeltere Antwort.
+  // Andere Routen brauchen ihre Parameter unter Umstaenden.
+  if (url.hostname === 'yata.yt') {
+    url.search = '';
+    url.hash = '';
+  }
   return url;
 }
 

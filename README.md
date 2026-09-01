@@ -500,8 +500,12 @@ Ware im Regal, Geld auf der Hand. Welche gerade bindet, steht als Marker daneben
 | Reisezeit | Tabelle mal Faktor des Fliegers, oder deine gemessene Zeit |
 
 **Torns API kennt die Auslandsvorräte nicht.** In der offiziellen Spec (6.13.1) gibt es
-`/user/travel` für den eigenen Flugstatus, aber keinen Bestand der Shops in Mexiko oder Japan;
-weav3r hat gar keine Travel-Routen. In Torn werden diese Zahlen seit jeher von Spielern
+`/user/travel` für den eigenen Flugstatus, aber keinen Bestand der Shops in Mexiko oder Japan.
+In der weav3r-Spec, die uns vorliegt, steht ebenfalls keine Travel-Route — deren Website zeigt
+Auslandsvorräte allerdings an, ruft also etwas auf. **API-Diagnose → weav3r-Travel-Routen
+suchen** fragt eine Handvoll naheliegender Pfade ab und zeigt roh, was zurückkommt: Status,
+oberste Schlüssel, Anfang der Antwort. Findet sich eine Route, lässt sich die Quelle auf
+weav3r umstellen, ohne dass etwas neu ausgeliefert werden muss — beide Hosts sind zugelassen. In Torn werden diese Zahlen seit jeher von Spielern
 gesammelt, und [YATA](https://yata.yt) ist die verbreitetste Sammelstelle. Deshalb steht
 `https://yata.yt` in der CSP — aber nur auf den zwei Seiten, die es brauchen.
 
@@ -789,7 +793,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-349 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
+354 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
 Parallelität und Abbruch, Zeitstempel-Deutung, Scan-Ablauf, Markup, Sortierung,
 Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status, Bestandsbewertung, Flugplanung, Modellwahl, Vorratsvorhersage und Persistenz sowie die Key-, CSP-,
 Workflow- und Mobile-Prüfungen aus den Abschnitten oben.

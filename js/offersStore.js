@@ -6,7 +6,7 @@
 // erinnert. Also wandert jeder gesehene Trade in den Speicher und bleibt
 // dort, bis er verdraengt wird.
 
-import { STATUS_LABELS } from './tradelog.js?v=11';
+import { STATUS_LABELS } from './tradelog.js?v=12';
 
 export const OFFERS_KEY = 'tbf.offers.v1';
 

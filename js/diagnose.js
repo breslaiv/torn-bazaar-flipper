@@ -1,9 +1,12 @@
-import { loadSettings, saveSettings } from './storage.js?v=11';
-import { fetchHealth, fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js?v=11';
-import { fetchKeyInfo } from './torn.js?v=11';
-import { fetchTravelStocks, travelUrl } from './yata.js?v=11';
-import { countryName } from './travel.js?v=11';
-import { setStatus, fmtMoney, showVersion } from './ui.js?v=11';
+import { loadSettings, saveSettings } from './storage.js?v=12';
+import {
+  fetchHealth, fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems,
+  probe, TRAVEL_CANDIDATES,
+} from './weav3r.js?v=12';
+import { fetchKeyInfo } from './torn.js?v=12';
+import { fetchTravelStocks, travelUrl } from './yata.js?v=12';
+import { countryName } from './travel.js?v=12';
+import { setStatus, fmtMoney, showVersion } from './ui.js?v=12';
 
 const reportEl = document.getElementById('report');
 const lines = [];
@@ -139,6 +142,54 @@ async function testYata() {
   setStatus(ok ? 'YATA erreichbar.' : 'YATA nicht erreichbar — Details im Bericht.', ok ? 'ok' : 'error');
 }
 
+/**
+ * Sucht bei weav3r nach einer Route fuer Auslandsvorraete.
+ *
+ * Die Website zeigt sie an, die uns vorliegende Spec kennt keine. Statt zu
+ * raten, fragen wir eine Handvoll naheliegender Pfade ab und zeigen roh, was
+ * zurueckkommt - Status, oberste Schluessel, Anfang der Antwort. Daraus
+ * laesst sich ablesen, ob eine davon passt.
+ */
+async function findTravelRoutes() {
+  const settings = loadSettings();
+  reset();
+  emit('Sucht bei weav3r nach einer Route für Auslandsvorräte.');
+  emit(`Basis: ${settings.weav3rKey ? 'mit Key' : 'ohne Key'}, ${TRAVEL_CANDIDATES.length} Pfade.`);
+  emit();
+  setStatus('Suche Routen…');
+
+  const treffer = [];
+  for (const path of TRAVEL_CANDIDATES) {
+    const r = await probe(path, settings);
+    if (r.error) {
+      emit(`  ${r.path.padEnd(22)} Fehler: ${r.error}`);
+      continue;
+    }
+    emit(`  ${r.path.padEnd(22)} ${String(r.status).padStart(3)}${r.ok ? '  ✓' : ''}`);
+    if (r.ok) {
+      treffer.push(r);
+      if (r.keys.length) emit(`     Schlüssel: ${r.keys.join(', ')}`);
+    }
+  }
+
+  emit();
+  if (!treffer.length) {
+    emit('Keiner der geratenen Pfade antwortet. Der sicherste Weg:');
+    emit('die Seite mit den Auslandsvorräten in einem Desktop-Browser öffnen,');
+    emit('Entwicklertools → Netzwerk → Filter XHR, neu laden — dort steht die');
+    emit('Adresse, die die Seite selbst aufruft.');
+    setStatus('Keine Route gefunden — Bericht kopieren und schicken.', 'error');
+    return;
+  }
+
+  for (const r of treffer) {
+    emit(`--- Antwort von ${r.path} ---`);
+    emit(r.sample);
+    emit();
+  }
+  setStatus(`${treffer.length} mögliche Route(n) — Bericht kopieren und schicken.`, 'ok');
+}
+
 async function testTorn() {
   const settings = loadSettings();
   reset();
@@ -163,6 +214,7 @@ function init() {
   document.getElementById('runAll').addEventListener('click', runAll);
   document.getElementById('testTorn').addEventListener('click', testTorn);
   document.getElementById('testYata').addEventListener('click', testYata);
+  document.getElementById('findTravel').addEventListener('click', findTravelRoutes);
   document.getElementById('copyReport').addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(reportEl.textContent);

@@ -131,9 +131,18 @@ test('eine andere Route auf demselben Host ist erlaubt', () => {
     'https://yata.yt/api/v1/travel/export/v2/');
 });
 
+test('weav3r ist als Quelle ebenfalls zugelassen', () => {
+  // Deren Website zeigt Auslandsvorraete an; sobald die Route bekannt ist,
+  // soll die Umstellung eine Einstellung sein und kein Deployment.
+  const url = travelUrl({ yataUrl: 'https://weav3r.dev/api/travel/stocks?limit=100' });
+  assert.equal(url.hostname, 'weav3r.dev');
+  assert.equal(url.searchParams.get('limit'), '100',
+    'Parameter bleiben hier stehen - der Cache-Hinweis gilt nur für YATA');
+});
+
 test('ein fremder Host wird benannt, nicht durchgereicht', () => {
-  // Die CSP dieser Seiten laesst nur yata.yt durch. Ohne diese Pruefung
-  // saehe die Blockade spaeter wie ein Netzwerkfehler aus.
+  // Die CSP dieser Seiten laesst nur die beiden bekannten Hosts durch. Ohne
+  // diese Pruefung saehe die Blockade spaeter wie ein Netzwerkfehler aus.
   for (const url of ['https://example.com/export/', 'http://yata.yt/api/', 'https://evil.yata.yt.example/']) {
     assert.throws(() => travelUrl({ yataUrl: url }), (err) => {
       assert.ok(err instanceof YataError);

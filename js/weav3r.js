@@ -5,8 +5,8 @@
 // Query-Parameter mitgeschickt statt als Header: ein X-API-Key-Header wuerde
 // einen CORS-Preflight ausloesen, den wir von github.io aus nicht brauchen.
 
-import { WEAV3R_BASE, WEAV3R_RATE_LIMIT } from './config.js?v=11';
-import { RateLimiter } from './ratelimit.js?v=11';
+import { WEAV3R_BASE, WEAV3R_RATE_LIMIT } from './config.js?v=12';
+import { RateLimiter } from './ratelimit.js?v=12';
 
 export const limiter = new RateLimiter(WEAV3R_RATE_LIMIT, 'weav3r');
 
@@ -172,4 +172,57 @@ export async function fetchDollarItems(settings, { page = 1, limit = 100, ...opt
 
 export async function fetchHealth(settings) {
   return get('/health', {}, settings);
+}
+
+// ---------- Routensuche ----------
+
+/**
+ * Kandidaten fuer eine Auslandsvorrats-Route bei weav3r.
+ *
+ * Die Spec, die uns vorliegt, kennt keine - die Website zeigt die Bestaende
+ * aber an, ruft also irgendetwas auf. Statt zu raten und es fest zu
+ * verdrahten, fragt die Diagnose-Seite eine Handvoll naheliegender Pfade ab
+ * und zeigt, was zurueckkommt. Das laeuft im Browser des Nutzers, der weav3r
+ * erreicht.
+ */
+export const TRAVEL_CANDIDATES = [
+  '/travel',
+  '/travel/stocks',
+  '/travel/items',
+  '/travel/export',
+  '/abroad',
+  '/abroad/stocks',
+  '/abroad/items',
+  '/foreign',
+  '/foreign/stocks',
+  '/countries',
+  '/marketplace/travel',
+  '/travel-items',
+];
+
+/**
+ * Fragt einen Pfad ab und beschreibt die Antwort, statt sie zu deuten.
+ *
+ * @returns {{path:string, status:number, ok:boolean, keys:string[], sample:string, error:string|null}}
+ */
+export async function probe(path, settings = {}, { signal } = {}) {
+  const url = buildUrl(path, {}, settings.weav3rKey);
+  try {
+    await limiter.acquire();
+    const res = await fetch(url, { headers: { Accept: 'application/json' }, signal });
+    const text = (await res.text()).slice(0, 4000);
+
+    let keys = [];
+    try {
+      const data = JSON.parse(text);
+      keys = data && typeof data === 'object' && !Array.isArray(data)
+        ? Object.keys(data).slice(0, 12)
+        : [`Array mit ${Array.isArray(data) ? data.length : '?'} Einträgen`];
+    } catch { /* kein JSON - dann sagt die Probe eben nur den Status */ }
+
+    return { path, status: res.status, ok: res.ok, keys, sample: text.slice(0, 220), error: null };
+  } catch (err) {
+    if (err.name === 'AbortError') throw err;
+    return { path, status: 0, ok: false, keys: [], sample: '', error: err.message };
+  }
 }
