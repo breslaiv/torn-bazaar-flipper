@@ -22,9 +22,9 @@
 //                vergleichen. So kommt die Guete aus Messung statt aus einer
 //                Faustregel, die ich mir ausgedacht habe.
 
-import { median, weightAt, weightedQuantile, HALF_LIFE_MINUTES } from './stats.js?v=17';
-import { MODELS, modelByKey, runModel, drainRate } from './travelModels.js?v=17';
-import { findCycles, estimateTimer, estimateCapacity, nextRestock } from './restock.js?v=17';
+import { median, weightAt, weightedQuantile, HALF_LIFE_MINUTES } from './stats.js?v=18';
+import { MODELS, modelByKey, runModel, drainRate } from './travelModels.js?v=18';
+import { findCycles, estimateTimer, estimateCapacity, nextRestock } from './restock.js?v=18';
 
 // Weitergereicht, damit Aufrufer nur ein Modul kennen muessen.
 export { weightAt, weightedQuantile, HALF_LIFE_MINUTES };
@@ -182,6 +182,23 @@ export function estimate(series = [], now = Date.now()) {
 
 /** Erst ab so vielen Kontrollen darf ein Modell das bisherige abloesen. */
 export const MIN_CHECKS = 4;
+
+/**
+ * So viele passende Kontrollen braucht es fuer eine Wahrscheinlichkeit.
+ *
+ * Der Grund ist nicht die Kalibrierung, sondern die Aufloesung: aus n
+ * Kontrollen kann eine Wahrscheinlichkeit nur ein Vielfaches von 1/n sein.
+ * Mit den frueheren drei waren "0, 33, 67, 100 %" die einzigen moeglichen
+ * Antworten - eine angezeigte "83 %" behauptete eine Genauigkeit, die die
+ * Grundlage nicht hergab. Acht ergibt Schritte von 12,5 %, und das passt zu
+ * einer Anzeige, die auf Zehnerstellen rundet.
+ *
+ * Dass es nebenbei ehrlicher wird, ist gemessen: "ueber 80 %" trifft damit in
+ * 91,2 % statt 90,0 % der Faelle ein, auf drei Stunden Frist in 85,7 % statt
+ * 83,2 %. Der Preis sind 13 % weniger Auskuenfte - also 13 % mehr ehrliche
+ * Luecken.
+ */
+export const MIN_RESIDUALS = 8;
 
 /** Standard, solange nichts gemessen ist: das Modell, mit dem die App startete. */
 export const DEFAULT_MODEL = 'cycle';
@@ -623,12 +640,19 @@ export function chanceAtLeast(series, units, minutesAhead, now = Date.now()) {
   if (quantity === null) return null;
 
   const residuals = results.get(choice.key).residuals;
-  if (residuals.length < 3) return null;
 
   const elapsed = Math.max(0, (now - points[points.length - 1][0]) / MINUTE);
   const horizon = elapsed + Math.max(0, minutesAhead);
-  const near = residuals.filter((r) => r.horizon >= horizon / 3 && r.horizon <= horizon * 3);
-  const used = near.length >= 3 ? near : residuals;
+
+  // Nur Kontrollen aus einer vergleichbaren Frist. Fruehen hier ein Rueckfall
+  // auf *alle* Kontrollen, wenn zu wenige passten - und das war der Fehler:
+  // eine Drei-Stunden-Frage wurde mit Erfahrungen aus zwanzig Minuten
+  // beantwortet, und die kennen das Leerlaufen nicht. Gemessen ueber 37 747
+  // Faelle traf diese Auskunft, wo sie "60 bis 80 %" sagte, in 36,9 % der
+  // Faelle ein. Eine gegenlaeufige Zahl ist schlimmer als keine.
+  const used = residuals.filter((r) => r.horizon >= horizon / 3 && r.horizon <= horizon * 3);
+  if (used.length < MIN_RESIDUALS) return null;
+
   const maxSeen = Math.max(...points.map((p) => p[1]));
 
   const hits = used.filter((r) => {

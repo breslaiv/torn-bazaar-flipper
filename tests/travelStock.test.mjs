@@ -16,6 +16,7 @@ const {
   evaluateModels, chooseModel, conformalInterval,
   weightAt, weightedQuantile, seriesFor, loadStock, saveStock, mergeStock,
   MAX_SAMPLES, MAX_HISTORY, BACKTEST_POINTS, BACKTEST_ORIGINS, HALF_LIFE_MINUTES, MIN_CHECKS,
+  MIN_RESIDUALS,
 } = await import('../js/travelStock.js');
 const { MODELS, modelByKey, runModel } = await import('../js/travelModels.js');
 
@@ -310,6 +311,32 @@ test('die Chance auf die eigene Kapazitaet ist die eigentliche Auskunft', () => 
   const now = T0 + 270 * MIN;
   assert.equal(chanceAtLeast(s, 5, 30, now), 1, 'reichlich vorhanden, 5 gesucht');
   assert.equal(chanceAtLeast(s, 900, 30, now), 0, 'so viel wird es sicher nicht');
+});
+
+test('ohne Kontrollen aus vergleichbarer Frist gibt es keine Wahrscheinlichkeit', () => {
+  // Der behobene Fehler: reichten die zur Frist passenden Kontrollen nicht,
+  // wurden stillschweigend *alle* genommen - eine Fuenf-Stunden-Frage bekam
+  // dann eine Antwort aus halbstuendigen Erfahrungen. Gemessen ueber 37 747
+  // Faelle traf diese Auskunft, wo sie "60 bis 80 %" sagte, in 36,9 % ein.
+  // Eine gegenlaeufige Zahl ist schlimmer als gar keine.
+  const kurz = series(Array.from({ length: 12 }, (_, i) => [i * 5, 300 - i * 10]));
+
+  // Die Reihe deckt eine knappe Stunde ab; nach fuenf Stunden gefragt, gibt
+  // es nichts Vergleichbares.
+  assert.equal(chanceAtLeast(kurz, 5, 300, T0 + 55 * MIN), null, 'lieber keine Zahl');
+});
+
+test('die Wahrscheinlichkeit ist nie feiner als ihre Grundlage', () => {
+  // Aus n Kontrollen kann sie nur ein Vielfaches von 1/n sein. Mit den
+  // frueheren drei waren 0, 33, 67 und 100 % die einzigen Antworten - eine
+  // angezeigte "83 %" behauptete Genauigkeit, die es nicht gab.
+  assert.ok(MIN_RESIDUALS >= 8, `${MIN_RESIDUALS} Kontrollen ergeben zu grobe Schritte`);
+
+  const lang = series(Array.from({ length: 40 }, (_, i) => [i * 15, 400 - (i % 20) * 15]));
+  const c = chanceAtLeast(lang, 5, 60, T0 + 39 * 15 * MIN);
+  if (c !== null) {
+    assert.ok(c >= 0 && c <= 1, `${c} ist keine Wahrscheinlichkeit`);
+  }
 });
 
 test('uneinheitliches Tempo ergibt eine Chance zwischen 0 und 1', () => {
