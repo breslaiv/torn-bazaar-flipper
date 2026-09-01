@@ -213,6 +213,27 @@ test('aus dem leeren Regal gewinnt auf kurze Frist das Modell, das den Nachschub
   assert.equal(chooseModel(scoreModels(roh, { fromEmpty: true, horizon: 30 })).key, 'cycle');
 });
 
+test('auf einem zyklischen Regal schlaegt der Mechanismus das Nichtstun deutlich', () => {
+  // Der Befund, den der Gesamtwert verschweigt: ueber alle Reihen gemittelt
+  // sieht "bleibt wie es ist" am besten aus, weil 84 % der Kontrollen auf
+  // Regalen liegen, die sich gar nicht bewegen. Auf den Regalen, die
+  // leerlaufen - also dort, wo sich ein Flug entscheidet - liegt flat
+  // gemessen um 61 % daneben und cycle um 6,5 %.
+  //
+  // Wer also den Gesamtwert optimiert, macht die App schlechter. Dieser Test
+  // steht hier, damit das auffaellt.
+  const roh = evaluateModels(zyklusReihe());
+  const bewertet = scoreModels(roh, { fromEmpty: false, horizon: 60 });
+
+  const cycle = bewertet.get('cycle');
+  const flat = bewertet.get('flat');
+  assert.ok(cycle.checks >= 4 && flat.checks >= 4, 'zu wenige Kontrollen fuer den Vergleich');
+  assert.ok(
+    cycle.meanAbsError * 2 < flat.meanAbsError,
+    `cycle ${cycle.meanAbsError} sollte flat ${flat.meanAbsError} deutlich schlagen`,
+  );
+});
+
 test('drei Stunden voraus laesst sich die Phase eines Zyklus nicht mehr raten', () => {
   // Der Zyklus dieser Reihe dauert 100 Minuten. Auf 180 Minuten Frist weiss
   // auch das Modell mit Timer nicht, wo im Zyklus man landet - und dann

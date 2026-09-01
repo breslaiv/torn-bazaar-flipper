@@ -944,11 +944,33 @@ Was dabei sichtbar wird, war vorher unsichtbar:
 `daily` steigt entsprechend von 6 auf 32 gewonnene Reihen. Genau diese
 Unterscheidung war auf 8 Minuten unmöglich.
 
-Zwei Dinge bleiben offen und sind bewusst nicht behoben: `cycle` hat mit
-Abstand den größten mittleren Fehler, obwohl es den Mechanismus des Spiels
-abbildet und der Standard ist — dort steckt ein teurer Fehlschlag, der eigene
-Untersuchung verdient. Und ein absoluter Stückfehler vergleicht Items mit drei
-Stück gegen Items mit achttausend; ein maßstabsfreies Maß wäre ehrlicher.
+### Der Gesamtwert empfiehlt das falsche Modell
+
+In der Tabelle oben hat `cycle` mit 122–131 den mit Abstand größten Fehler —
+und dieser Eindruck ist falsch. Getrennt nach Art des Regals, mit dem Fehler
+im Verhältnis zum Bestand statt in Stück:
+
+| | `cycle` | `drift` | `daily` | `flat` |
+|---|---|---|---|---|
+| Regale mit ≥ 2 Zyklen (3328 Kontrollen) | **6,5 %** | 11,7 % | 12,1 % | **61,0 %** |
+| Regale ohne Zyklus (17 530 Kontrollen) | 35,7 % | 0,0 % | 0,0 % | 0,0 % |
+
+**84 % aller Kontrollen liegen auf Regalen, die sich in drei Stunden nicht
+bewegen.** Dort ist „bleibt wie es ist" trivial richtig, und weil diese Fälle
+den Gesamtwert dominieren, sieht `flat` überall gut aus — obwohl es auf den
+Regalen, die tatsächlich leerlaufen, um 61 % danebenliegt. Genau dort, wo die
+Entscheidung fällt, ob sich ein Flug lohnt, ist `flat` das schlechteste
+Verfahren und `cycle` das beste.
+
+Gerettet wird das dadurch, dass die Auswahl **je Reihe** entscheidet und nicht
+global: `cycle` gewinnt die rund vierzig Reihen mit Zyklen, die übrigen gehen
+an die ruhigen Modelle. Wer den Gesamtwert optimiert, macht die App also
+schlechter. Deshalb steht der Befund hier, und deshalb sichert ein Test ab,
+dass `cycle` auf einer zyklischen Reihe `flat` schlägt.
+
+Offen bleibt das Maß selbst: ein absoluter Stückfehler vergleicht Items mit
+drei Stück gegen Items mit achttausend. Die Zahlen in dieser Tabelle sind
+deshalb relativ gerechnet — im Code ist es noch der absolute Fehler.
 
 ```bash
 git clone … && cd torn-bazaar-flipper
