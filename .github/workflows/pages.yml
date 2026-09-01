@@ -1,8 +1,14 @@
 name: Deploy to GitHub Pages
 
+# Nur noch von Hand. Das Repository ist privat, und GitHub Pages gibt es aus
+# einem privaten Repository im Free-Tier nicht - bei jedem Push wuerde dieser
+# Lauf fehlschlagen und Rauschen erzeugen. Ausserdem ist Pages nicht mehr das
+# Ziel: die Fassung laeuft lokal, das Telefon kommt ueber Tailscale herein.
+#
+# Der Workflow bleibt stehen, weil die Entscheidung umkehrbar sein soll. Wer
+# Pages wieder will - oder ein Konto hat, das private Repos dort erlaubt -,
+# nimmt die zwei Zeilen unter `push` wieder herein.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

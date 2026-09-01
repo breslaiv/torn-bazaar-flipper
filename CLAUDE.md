@@ -8,15 +8,25 @@ Reine ES-Module, kein Build, gehostet auf GitHub Pages. Ausführliche Begründun
 zu jedem Teil steht im README — das hier sind die Regeln, die man verletzt,
 bevor man das README liest.
 
-## Das Repository ist öffentlich
+## Keine Schlüssel im Repository
 
-GitHub Pages verlangt das im Free-Tier. Ein versehentlich committeter Key steht
-damit für immer in der Historie, auch nach dem Löschen.
+Das Repository war öffentlich, weil GitHub Pages das im Free-Tier verlangt.
+Inzwischen ist es privat und die Fassung läuft lokal — die Regeln bleiben
+trotzdem, und zwar unverändert:
 
 - API-Keys leben **nur** im `localStorage` des Besuchers, nie im Code.
 - `DEFAULTS.tornKey` und `DEFAULTS.weav3rKey` bleiben leer.
 - Collector-Workflows benutzen **kein** `secrets.` — ein Test setzt das durch.
 - `tests/no-secrets.test.mjs` läuft bei jedem Push mit.
+
+Privat heißt nicht sicher, und es heißt vor allem nicht *dauerhaft* privat.
+Ein Repository lässt sich mit zwei Klicks wieder öffentlich machen, es wird
+geteilt, geforkt, gesichert — und die Historie vergisst nichts. Ein einmal
+committeter Key ist in jedem Klon und in jedem Backup, auch nachdem die Zeile
+gelöscht wurde. Die Regeln kosten nichts; sie hinterher zu brauchen, kostet
+den Key.
+
+Aus demselben Grund steht in `WEITER.md` keine Tailnet-Adresse.
 
 ## Keine Abhängigkeiten
 

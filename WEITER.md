@@ -29,9 +29,10 @@ das Telefon kommt über Tailscale herein. `torn-web` hängt weiterhin
 ausschließlich an 127.0.0.1 — dazwischen steht `tailscale serve` als
 Weiterleitung auf Port 8080, damit die Bindung unangetastet bleibt.
 
-Die Adresse steht bewusst nicht hier: das Repository ist öffentlich, und ein
-Tailnet-Name gehört nicht dauerhaft in eine Historie, die jeder lesen kann.
-`tailscale status` und `tailscale serve status` zeigen sie auf der Maschine.
+Die Adresse steht bewusst nicht hier. Das Repository ist inzwischen privat,
+aber die Historie überlebt jede spätere Umstellung — und ein Tailnet-Name
+gehört nicht dauerhaft hinein. `tailscale status` und `tailscale serve status`
+zeigen sie auf der Maschine.
 
 Punkt 1 bis 3 der alten Liste sind **abgearbeitet**; die Antworten stehen
 unten, weil sie bestimmen, was jetzt noch sinnvoll ist. Kurz:
@@ -247,9 +248,10 @@ wieder entfernen** (`rm -rf node_modules package-lock.json` und
 `git checkout package.json`). Der Chromium liegt unter `/opt/pw-browsers` oder
 wird installiert; `executablePath` setzen statt `playwright install`.
 
-**Der API-Key gehört nicht ins Repository.** Das Repo ist öffentlich, und
-`tests/no-secrets.test.mjs` prüft das bei jedem Lauf — aber verlass dich nicht
-darauf, sondern denk vorher nach.
+**Der API-Key gehört nicht ins Repository.** Auch nicht, seit es privat ist:
+privat lässt sich zurücknehmen, die Historie nicht. `tests/no-secrets.test.mjs`
+prüft es bei jedem Lauf — aber verlass dich nicht darauf, sondern denk vorher
+nach.
 
 **Nichts pushen ohne Rückfrage.** Committen gern, pushen nur, wenn der Nutzer
 zustimmt.
