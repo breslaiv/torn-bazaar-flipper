@@ -169,3 +169,16 @@ export function planTrips(stocksByCountry, prices, settings = {}) {
     .map(([code, items]) => planCountry(code, items, prices, settings))
     .sort((a, b) => (b.profitPerMinute ?? -1) - (a.profitPerMinute ?? -1));
 }
+
+/**
+ * Wann losfliegen, um zum Nachschub zu landen?
+ *
+ * Das ist beim Item-Running die eigentliche Entscheidung: nicht wieviel jetzt
+ * dasteht, sondern wann man starten muss, damit man ankommt, wenn das Regal
+ * gerade wieder voll ist.
+ */
+export function departure(restock, oneWayMinutes, now = Date.now()) {
+  if (!restock || !Number.isFinite(oneWayMinutes)) return null;
+  const minutes = (restock.at - now) / 60000 - oneWayMinutes;
+  return { minutes, at: now + minutes * 60000, late: minutes < 0 };
+}

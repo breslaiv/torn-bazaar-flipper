@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   COUNTRIES, countryCode, countryName, travelFactor, oneWayMinutes,
-  rateItem, planCountry, planTrips,
+  rateItem, planCountry, planTrips, departure,
 } from '../js/travel.js';
 
 const base = { travelCapacity: 5, budget: 0, marketFeePct: 0, travelAirstrip: 'standard' };
@@ -107,4 +107,37 @@ test('ohne Prognose gilt weiterhin der aktuelle Vorrat', () => {
   assert.equal(r.units, 3);
   assert.equal(r.limitedBy, 'Vorrat');
   assert.equal(r.expectedQuantity, null);
+});
+
+// ---------- Abflugzeit ----------
+
+test('die Abflugzeit ist der Nachschub minus der Flugdauer', () => {
+  // Die eigentliche Handlung beim Item-Running: nicht "wieviel steht jetzt
+  // da", sondern "wann muss ich los, damit ich ankomme, wenn nachgelegt ist".
+  const jetzt = Date.UTC(2026, 8, 1, 20, 0, 0);
+  const nachschub = { at: jetzt + 90 * 60000 };
+
+  const ab = departure(nachschub, 30, jetzt);
+  assert.equal(ab.minutes, 60, '90 Minuten bis zum Nachschub, 30 Minuten Flug');
+  assert.equal(ab.at, jetzt + 60 * 60000);
+  assert.equal(ab.late, false);
+});
+
+test('ist der Flug laenger als die Wartezeit, ist es zu spaet', () => {
+  // Dann landet man nach dem Nachschub - und andere waren vorher da. Die
+  // Anzeige sagt in dem Fall "jetzt" statt einer Uhrzeit in der
+  // Vergangenheit, denn eine vergangene Uhrzeit liest sich wie ein Vorschlag.
+  const jetzt = Date.UTC(2026, 8, 1, 20, 0, 0);
+  const ab = departure({ at: jetzt + 20 * 60000 }, 45, jetzt);
+  assert.equal(ab.late, true);
+  assert.ok(ab.minutes < 0);
+});
+
+test('ohne Timer oder ohne Flugdauer gibt es keine Abflugzeit', () => {
+  // Lieber keine Angabe als eine erfundene: wer sich den Abend danach
+  // richtet, verliert bei einer geratenen Zahl drei Stunden.
+  const jetzt = Date.now();
+  assert.equal(departure(null, 30, jetzt), null);
+  assert.equal(departure({ at: jetzt + 60000 }, null, jetzt), null);
+  assert.equal(departure({ at: jetzt + 60000 }, NaN, jetzt), null);
 });

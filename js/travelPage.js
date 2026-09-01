@@ -1,24 +1,26 @@
 // Verdrahtung der Flugseite.
 
-import { loadSettings, saveSettings } from './storage.js?v=18';
-import { fetchMarketplace } from './weav3r.js?v=18';
+import { loadSettings, saveSettings } from './storage.js?v=19';
+import { fetchMarketplace } from './weav3r.js?v=19';
 import {
   fetchTravelStocks, parseTravelExport, travelUrl, YataError, YATA_URL,
-} from './yata.js?v=18';
+} from './yata.js?v=19';
 import {
-  COUNTRIES, AIRSTRIPS, countryName, oneWayMinutes, planTrips, planCountry,
-} from './travel.js?v=18';
+  COUNTRIES, AIRSTRIPS, countryName, oneWayMinutes, planTrips, planCountry, departure,
+} from './travel.js?v=19';
 import {
   loadStock, saveStock, recordSnapshot, seriesFor, predict, estimate,
   chanceAtLeast, backtest, restockInfo, mergeStock,
-} from './travelStock.js?v=18';
-import { inStockWindows, windowRate, recentRestocks, hourProfile } from './restock.js?v=18';
-import { capacityFromPerks, flyMethodKey, BASE_CAPACITY } from './capacity.js?v=18';
-import { fetchTravel, fetchPerks, TornApiError } from './torn.js?v=18';
-import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=18';
-import { renderTable } from './table.js?v=18';
-import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=18';
-import { restorePanels } from './panels.js?v=18';
+} from './travelStock.js?v=19';
+import { inStockWindows, windowRate, recentRestocks, hourProfile } from './restock.js?v=19';
+import { capacityFromPerks, flyMethodKey, BASE_CAPACITY } from './capacity.js?v=19';
+import { fetchTravel, fetchPerks, TornApiError } from './torn.js?v=19';
+import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=19';
+import { renderTable } from './table.js?v=19';
+import {
+  fmtMoney, fmtPct, setStatus, escapeHtml, showVersion, fmtClock, fmtClockTct,
+} from './ui.js?v=19';
+import { restorePanels } from './panels.js?v=19';
 
 let prices = new Map();
 let stocks = new Map();      // code -> [{itemId, itemName, cost, quantity}]
@@ -36,17 +38,36 @@ function settings() {
 
 // ---------- Vorhersage ----------
 
-/** Vorrat bei Landung, mit Bereich und Chance auf die eigene Kapazitaet. */
+/**
+ * Vorrat bei Landung, mit Bereich und Chance auf die eigene Kapazitaet.
+ *
+ * Gemerkt je Ansicht, weil mehrere Spalten dieselbe Frage stellen: darin
+ * stecken predict() und chanceAtLeast(), und beide laufen durch
+ * evaluateModels() - den teuersten Pfad der App. Ohne den Speicher kostete
+ * jede zusaetzliche Spalte einen weiteren vollen Durchlauf je Zeile.
+ *
+ * Geleert wird er am Anfang von render(); alles, was die Antwort aendern
+ * koennte - neue Messungen, andere Einstellungen -, loest ohnehin ein render()
+ * aus.
+ */
+const arrivalCache = new Map();
+
 function arrival(code, item, minutes) {
+  const key = `${code}:${item.itemId}:${minutes ?? 0}`;
+  const gemerkt = arrivalCache.get(key);
+  if (gemerkt) return gemerkt;
+
   const series = seriesFor(observations, code, item.itemId);
   const p = predict(series, minutes ?? 0);
   const needed = Math.max(1, Number(settings().travelCapacity) || 1);
-  return {
+  const wert = {
     ...p,
     needed,
     chance: chanceAtLeast(series, Math.min(needed, item.quantity ?? needed), minutes ?? 0),
     now: item.quantity,
   };
+  arrivalCache.set(key, wert);
+  return wert;
 }
 
 function confidenceTag(p) {
@@ -54,8 +75,6 @@ function confidenceTag(p) {
   return `<span class="tag${p.confidence === 'grob' ? ' warn' : ''}">${escapeHtml(p.confidence)}</span>`;
 }
 
-const clock = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' });
-const fmtClock = (ts) => clock.format(new Date(ts));
 
 /** "in 42 min" oder "vor 8 min" - naeher am Denken als eine Uhrzeit allein. */
 function relative(ts, now = Date.now()) {
@@ -65,19 +84,6 @@ function relative(ts, now = Date.now()) {
   if (minutes === 0) return 'gerade eben';
   if (minutes > 0) return `in ${fmtMinutes(minutes)}`;
   return `vor ${fmtMinutes(-minutes)}`;
-}
-
-/**
- * Wann losfliegen, um zum Nachschub zu landen?
- *
- * Das ist beim Item-Running die eigentliche Entscheidung: nicht wieviel jetzt
- * dasteht, sondern wann man starten muss, damit man ankommt, wenn das Regal
- * gerade wieder voll ist.
- */
-function departure(restock, oneWayMinutes, now = Date.now()) {
-  if (!restock || !Number.isFinite(oneWayMinutes)) return null;
-  const minutes = (restock.at - now) / 60000 - oneWayMinutes;
-  return { minutes, at: now + minutes * 60000, late: minutes < 0 };
 }
 
 /** "12–38" statt einer Zahl, die Genauigkeit vortaeuscht. */
@@ -152,10 +158,38 @@ const TRIP_COLUMNS = [
       }
       const spanne = Math.round((p.restock.to - p.restock.from) / 120000);
       return {
-        html: `${escapeHtml(fmtClock(p.restock.at))}`
+        html: `${escapeHtml(fmtClockTct(p.restock.at))}`
           + `<span class="tag">${escapeHtml(relative(p.restock.at))}</span>`
           + (spanne > 0 ? `<span class="tag">±${spanne} min</span>` : '')
           + (p.restock.waiting ? '<span class="tag ok">Timer läuft</span>' : ''),
+      };
+    },
+  },
+  {
+    key: 'abflug',
+    label: 'Abflug',
+    cell: (t) => {
+      if (!t.best) return { text: '—' };
+      const p = arrival(t.code, t.best, t.oneWayMinutes);
+      // Ohne Timer keine Abflugzeit. Eine erfundene waere hier besonders
+      // teuer: man richtet den Abend danach und landet vor einem leeren Regal.
+      if (!p.restock) return { html: '<span class="muted">—</span>' };
+
+      const ab = departure(p.restock, t.oneWayMinutes);
+      if (!ab) return { html: '<span class="muted">—</span>' };
+
+      // Schon zu spaet fuer diesen Nachschub: dann ist "jetzt" die ehrliche
+      // Auskunft, nicht eine Uhrzeit in der Vergangenheit.
+      if (ab.late) {
+        return {
+          html: '<span class="strong">jetzt</span>'
+            + `<span class="tag warn">Nachschub ${escapeHtml(relative(p.restock.at))}</span>`,
+        };
+      }
+      return {
+        html: `<span class="strong">${escapeHtml(fmtClockTct(ab.at))}</span>`
+          + `<span class="tag">${escapeHtml(relative(ab.at))}</span>`
+          + `<span class="tag">Flug ${escapeHtml(fmtMinutes(t.oneWayMinutes))}</span>`,
       };
     },
   },
@@ -283,6 +317,10 @@ function withForecast(s) {
 }
 
 function render() {
+  // Der Speicher gilt genau fuer diese Ansicht: was ihn ungueltig machen
+  // koennte, loest ohnehin ein neues render() aus.
+  arrivalCache.clear();
+
   const s = settings();
   const forecast = withForecast(s);
   const trips = planTrips(forecast, prices, s);
@@ -305,7 +343,10 @@ function render() {
       }
       return ab.late
         ? tile('Abflug', 'jetzt', `Nachschub ${relative(p.restock.at)} — du landest danach`)
-        : tile('Abflug', relative(ab.at), `landet zum Nachschub um ${fmtClock(p.restock.at)}`);
+        // Die Uhrzeit steht gross, weil man den Abend danach richtet; "in
+        // 42 min" allein zwingt zum Kopfrechnen und veraltet beim Hinsehen.
+        : tile('Abflug', fmtClockTct(ab.at),
+          `${relative(ab.at)} — landet zum Nachschub um ${fmtClockTct(p.restock.at)}`);
     })(),
     tile('Einsatz', best ? fmtMoney(best.best.spend) : '—',
       best ? `begrenzt durch ${best.best.limitedBy}` : ''),
@@ -429,7 +470,7 @@ async function takeFromTorn() {
 // ---------- Einzelnes Item ----------
 
 const RESTOCK_COLUMNS = [
-  { key: 'at', label: 'Nachschub', align: 'left', cell: (r) => ({ text: `${fmtClock(r.at)} · ${relative(r.at)}` }) },
+  { key: 'at', label: 'Nachschub', align: 'left', cell: (r) => ({ text: `${fmtClockTct(r.at)} · ${relative(r.at)}` }) },
   { key: 'outage', label: 'Leer', cell: (r) => ({ text: fmtMinutes(r.outageMinutes) }) },
   { key: 'amount', label: 'Menge', cell: (r) => ({ text: Number.isFinite(r.amount) ? fmtUnits.format(r.amount) : '—' }) },
   {

@@ -1,5 +1,5 @@
-import { APP_VERSION } from './config.js?v=18';
-import { fmtAge } from './freshness.js?v=18';
+import { APP_VERSION } from './config.js?v=19';
+import { fmtAge } from './freshness.js?v=19';
 
 const money = new Intl.NumberFormat('en-US');
 
@@ -26,6 +26,39 @@ export function fmtMoneyShort(n) {
 
 export function fmtPct(n) {
   return Number.isFinite(n) ? `${n.toFixed(1)}%` : '—';
+}
+
+const clock = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' });
+
+/** Uhrzeit in der Zone des Geraets. */
+export const fmtClock = (ts) => clock.format(new Date(ts));
+
+/**
+ * Torn City Time ist UTC.
+ *
+ * Im Spiel steht jede Zeitangabe in TCT, im Browser in der Zone des Geraets.
+ * Wer im Sommer aus Mitteleuropa spielt, rechnet also bei jedem Blick zwei
+ * Stunden im Kopf - und beim Nachschub kostet ein Rechenfehler den ganzen
+ * Flug.
+ */
+const tornClock = new Intl.DateTimeFormat('de-DE', {
+  hour: '2-digit', minute: '2-digit', timeZone: 'UTC',
+});
+
+export const fmtTct = (ts) => tornClock.format(new Date(ts));
+
+/**
+ * Ortszeit, TCT dahinter - aber nur, wenn beide sich unterscheiden.
+ *
+ * Auf einem Geraet, das ohnehin auf UTC steht, waere dieselbe Zahl zweimal
+ * kein Dienst, sondern Rauschen. Verglichen werden deshalb die formatierten
+ * Werte und nicht der Zonen-Versatz: es zaehlt, ob der Leser zwei
+ * verschiedene Zahlen vor sich hat.
+ */
+export function fmtClockTct(ts) {
+  const lokal = fmtClock(ts);
+  const torn = fmtTct(ts);
+  return lokal === torn ? `${lokal} TCT` : `${lokal} · ${torn} TCT`;
 }
 
 export function escapeHtml(s) {

@@ -10,8 +10,8 @@
 // Mindestzahl an Kontrollen vor jedem Wechsel, und bei Gleichstand gewinnt
 // das einfachere.
 
-import { weightAt, weightedQuantile, median } from './stats.js?v=18';
-import { findCycles, estimateTimer, estimateCapacity, simulate } from './restock.js?v=18';
+import { weightAt, weightedQuantile, median } from './stats.js?v=19';
+import { findCycles, estimateTimer, estimateCapacity, simulate } from './restock.js?v=19';
 
 const MINUTE = 60 * 1000;
 
