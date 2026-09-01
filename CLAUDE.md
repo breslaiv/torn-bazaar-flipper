@@ -1,5 +1,8 @@
 # Arbeitsregeln für dieses Repository
 
+> Was als Nächstes ansteht, steht in `WEITER.md`. Hier stehen die Regeln, die
+> dabei gelten.
+
 Statischer Bazaar-Flipping-Scanner für Torn.com plus Flugplaner und Ledger.
 Reine ES-Module, kein Build, gehostet auf GitHub Pages. Ausführliche Begründung
 zu jedem Teil steht im README — das hier sind die Regeln, die man verletzt,
