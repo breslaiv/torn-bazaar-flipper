@@ -13,7 +13,7 @@ import { DEFAULTS } from '../js/config.js';
 // sie hier einzutragen. Genau das war mit travel.html passiert.
 const PAGES = readdirSync('.').filter((f) => f.endsWith('.html')).sort().map((f) => `./${f}`);
 const SKIP_DIRS = new Set(['.git', 'node_modules']);
-const TEXT_EXT = /\.(js|mjs|cjs|json|html|css|md|yml|yaml|txt)$/;
+const TEXT_EXT = /\.(sh|js|mjs|cjs|json|html|css|md|yml|yaml|txt)$/;
 
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {

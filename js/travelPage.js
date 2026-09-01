@@ -1,24 +1,24 @@
 // Verdrahtung der Flugseite.
 
-import { loadSettings, saveSettings } from './storage.js?v=14';
-import { fetchMarketplace } from './weav3r.js?v=14';
+import { loadSettings, saveSettings } from './storage.js?v=15';
+import { fetchMarketplace } from './weav3r.js?v=15';
 import {
   fetchTravelStocks, parseTravelExport, travelUrl, YataError, YATA_URL,
-} from './yata.js?v=14';
+} from './yata.js?v=15';
 import {
   COUNTRIES, AIRSTRIPS, countryName, oneWayMinutes, planTrips, planCountry,
-} from './travel.js?v=14';
+} from './travel.js?v=15';
 import {
   loadStock, saveStock, recordSnapshot, seriesFor, predict, estimate,
   chanceAtLeast, backtest, restockInfo, mergeStock,
-} from './travelStock.js?v=14';
-import { inStockWindows, windowRate, recentRestocks, hourProfile } from './restock.js?v=14';
-import { capacityFromPerks, flyMethodKey, BASE_CAPACITY } from './capacity.js?v=14';
-import { fetchTravel, fetchPerks, TornApiError } from './torn.js?v=14';
-import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=14';
-import { renderTable } from './table.js?v=14';
-import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=14';
-import { restorePanels } from './panels.js?v=14';
+} from './travelStock.js?v=15';
+import { inStockWindows, windowRate, recentRestocks, hourProfile } from './restock.js?v=15';
+import { capacityFromPerks, flyMethodKey, BASE_CAPACITY } from './capacity.js?v=15';
+import { fetchTravel, fetchPerks, TornApiError } from './torn.js?v=15';
+import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=15';
+import { renderTable } from './table.js?v=15';
+import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=15';
+import { restorePanels } from './panels.js?v=15';
 
 let prices = new Map();
 let stocks = new Map();      // code -> [{itemId, itemName, cost, quantity}]
@@ -60,7 +60,10 @@ const fmtClock = (ts) => clock.format(new Date(ts));
 /** "in 42 min" oder "vor 8 min" - naeher am Denken als eine Uhrzeit allein. */
 function relative(ts, now = Date.now()) {
   const minutes = Math.round((ts - now) / 60000);
-  if (minutes >= 0) return `in ${fmtMinutes(minutes)}`;
+  // "in 0 min" stand vorher an jeder frischen Messung: mit einem Sammler, der
+  // durchlaeuft, ist gerade gemessen der Normalfall und nicht die Ausnahme.
+  if (minutes === 0) return 'gerade eben';
+  if (minutes > 0) return `in ${fmtMinutes(minutes)}`;
   return `vor ${fmtMinutes(-minutes)}`;
 }
 

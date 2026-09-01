@@ -862,6 +862,82 @@ multipliziert mit dem Faktor des Fliegers. Stimmt eine Zeit bei dir nicht — an
 anderes Flugzeug —, trag deine gemessene ein: sie schlägt die Tabelle, weil sie alles bereits
 enthält.
 
+## Die lokale Fassung
+
+GitHub Actions misst 55 Minuten pro Stunde im Minutentakt und macht am
+Stundenwechsel eine Lücke. Wer eine Maschine hat, die durchläuft, kann das
+besser — und der Engpass wandert dorthin, wo er hingehört: nicht mehr zu
+unserem Takt, sondern zu der Frage, wie oft die YATA-Gemeinschaft überhaupt
+neue Vorräte einliefert. Genau das beantwortet `--stats` zum ersten Mal.
+
+**Was die Seiten davon merken: nichts.** Der lokale Server liefert
+`data/travel-stock.json` unter derselben Adresse und in derselben Form aus,
+nur aus einer Datenbank statt aus einer Datei. Im Browser ist keine Zeile
+anders.
+
+```bash
+git clone … && cd torn-bazaar-flipper
+./tools/setup-local.sh          # zeigt erst den Plan, fragt einmal, macht dann
+```
+
+Das Skript sichert Node 22+, legt `data/local/` an, schreibt zwei
+systemd-Units und schaltet den Deckel-Standby ab. NVIDIA-Treiber, Ollama und
+Modelle installiert es **nicht** — die brauchen einen Blick auf die Maschine
+(Secure Boot, MOK-Dialog) und kommen danach von Hand. Was es nicht selbst
+entscheiden kann, prüft es und berichtet: Akku-Ladeschwelle, Treiberlage.
+
+Zwei Dienste:
+
+| | |
+|---|---|
+| `torn-collector` | misst alle 15 s, schreibt nach `data/local/stock.db` |
+| `torn-web` | liefert die Seiten aus, hört **nur auf 127.0.0.1** |
+
+Dass der Webserver nur lokal hört, ist Absicht. Zugriff vom Telefon läuft über
+Tailscale — dann ist der Dienst für die eigenen Geräte da und nicht für jeden
+im WLAN. `--host 0.0.0.0` gibt es, aber nicht als Vorgabe.
+
+Beide Units laufen unter einem normalen Konto mit `ProtectSystem=strict` und
+`ReadWritePaths=data/local`: ein Fehler im Sammler kann höchstens die eigene
+Datenbank beschädigen, nicht das Repository und nicht das System.
+
+### Warum SQLite und nicht weiter JSON
+
+Die Datei im Repository ist auf 120 Punkte je Reihe gedeckelt und wird bei
+jedem Schreiben vollständig neu geschrieben. Für einen stündlichen Lauf ist das
+richtig; für eine Maschine, die im Sekundentakt misst und Monate durchhält,
+nicht mehr. Die Datenbank hängt nur die neue Zeile an, kennt keinen Deckel, und
+ein Absturz mitten im Schreiben lässt keine halbe Datei zurück.
+
+`node:sqlite` ist seit Node 22.5 eingebaut — die Nullabhängigkeits-Regel bleibt
+also intakt. Unter Node 22 meldet es sich mit einer Experimental-Warnung, ab
+Node 24 ist es still; deshalb installiert das Skript Node 24, wenn nichts
+Passendes da ist.
+
+Der Deckel gilt weiterhin für das, was **herausgeht**: was der Server ausliefert,
+landet im `localStorage` eines Telefons. Was in der Datenbank bleibt, ist die
+Grundlage für jede spätere Auswertung und darf wachsen.
+
+### Dieselbe Rechnung, nicht eine zweite
+
+`tools/collect-local.mjs` benutzt `collectOnce()` und `watch()` aus dem
+Actions-Sammler. Zwei Sammler mit zwei Rechnungen wären zwei Wahrheiten — und
+die wichtigste Regel würde als erste auseinanderlaufen: eine zwischengespeicherte
+Antwort von YATA ist **keine** neue Messung, weil ihr Zeitstempel derselbe
+bleibt. Zählte jede Abfrage als Messpunkt, wäre jede Reihe voller erfundener
+Beobachtungen und jeder Timer daraus wertlos.
+
+Nach einem Neustart liest der Sammler seinen Ausgangszustand aus der Datenbank.
+Ohne das meldet er den unveränderten Regalinhalt als frische Messung — und die
+Zeitreihe bekäme Punkte, die nie beobachtet wurden.
+
+```bash
+node tools/collect-local.mjs --stats     # wie dicht die Daten wirklich sind
+curl -s localhost:8080/health            # läuft überhaupt etwas an
+journalctl -u torn-collector -f
+```
+
+
 ## Hosting auf GitHub Pages
 
 `.github/workflows/pages.yml` deployt bei jedem Push auf `main`. Einmalig nötig:
@@ -927,6 +1003,10 @@ js/table.js         Tabellenbau mit data-label für die Kartenansicht
 js/ledgerPage.js    Verdrahtung der Ledger-Seite
 tools/make-icon.py  erzeugt icon-180.png fuer den iOS-Home-Screen
 js/normal.js        Vergleich eines Preises mit dem Normalbereich seines Items
+tools/setup-local.sh     richtet die lokale Fassung auf Ubuntu Server ein
+tools/serve.mjs          lokaler Webserver, liefert die Vorräte aus der Datenbank
+tools/store.mjs          Messreihen in SQLite, über das eingebaute node:sqlite
+tools/collect-local.mjs  Dauersammler für die eigene Maschine
 tools/collect-travel.mjs sammelt Vorräte für GitHub Actions, mit der App-Logik
 tools/collect-prices.mjs sammelt Marktpreise und rechnet den Normalbereich
 tools/version-assets.py  stempelt APP_VERSION in jeden Import
@@ -944,7 +1024,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-406 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
+443 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
 Parallelität und Abbruch, Zeitstempel-Deutung, Scan-Ablauf, Markup, Sortierung,
 Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status, Bestandsbewertung, Flugplanung, Modellwahl, Vorratsvorhersage und Persistenz sowie die Key-, CSP-,
 Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
