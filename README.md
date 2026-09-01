@@ -502,10 +502,25 @@ Ware im Regal, Geld auf der Hand. Welche gerade bindet, steht als Marker daneben
 **Torns API kennt die Auslandsvorräte nicht.** In der offiziellen Spec (6.13.1) gibt es
 `/user/travel` für den eigenen Flugstatus, aber keinen Bestand der Shops in Mexiko oder Japan.
 In der weav3r-Spec, die uns vorliegt, steht ebenfalls keine Travel-Route — deren Website zeigt
-Auslandsvorräte allerdings an, ruft also etwas auf. **API-Diagnose → weav3r-Travel-Routen
-suchen** fragt eine Handvoll naheliegender Pfade ab und zeigt roh, was zurückkommt: Status,
-oberste Schlüssel, Anfang der Antwort. Findet sich eine Route, lässt sich die Quelle auf
-weav3r umstellen, ohne dass etwas neu ausgeliefert werden muss — beide Hosts sind zugelassen. In Torn werden diese Zahlen seit jeher von Spielern
+Auslandsvorräte allerdings an, ruft also etwas auf.
+
+**Drei Sammelstellen sind bekannt**, und keine davon dokumentiert ihre Schnittstelle
+vollständig öffentlich:
+
+| Quelle | Stand |
+|---|---|
+| [YATA](https://yata.yt) | dokumentiert, in Betrieb — `/api/v1/travel/export/` |
+| Prometheus (`prombot.co.uk`) | sammelt dieselben Daten, dient [TornTools als Ausweichquelle](https://www.torn.com/forums.php?p=threads&f=67&t=16316648&b=0&a=0), wenn YATA ausfällt; Route unbekannt |
+| weav3r | zeigt Vorräte auf der Website, Route nicht in der Spec |
+
+Deshalb klopft die Diagnose-Seite beide unbekannten selbst ab (**weav3r-Travel-Routen suchen**,
+**Prometheus abklopfen**): je ein Dutzend naheliegender Pfade, und für jeden Status, oberste
+Schlüssel und der Anfang der Antwort — roh gezeigt statt gedeutet. Findet sich eine Route,
+lässt sich die Quelle darauf umstellen, ohne dass etwas neu ausgeliefert werden muss; alle drei
+Hosts sind zugelassen.
+
+Der Grund für den Aufwand ist Ausfallsicherheit: YATA ist crowdsourced und war in der
+Vergangenheit zeitweise offline — genau dafür existiert Prometheus. In Torn werden diese Zahlen seit jeher von Spielern
 gesammelt, und [YATA](https://yata.yt) ist die verbreitetste Sammelstelle. Deshalb steht
 `https://yata.yt` in der CSP — aber nur auf den zwei Seiten, die es brauchen.
 

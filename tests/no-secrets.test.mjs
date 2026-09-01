@@ -82,8 +82,10 @@ test('die Seiten erlauben Verbindungen nur zu Torn und weav3r', () => {
     // dazu, weil weder Torn noch weav3r die Auslandsvorraete kennen - und nur
     // auf den Seiten, die sie brauchen. 'self' erlaubt die gesammelte
     // Historie neben der Seite, also keine fremde Stelle.
+    // yata.yt und prombot.co.uk sammeln beide Auslandsvorraete - Torn und
+    // weav3r kennen sie nicht. Beide nur auf den Seiten, die sie brauchen.
     const allowed = /travel|diagnose/.test(page)
-      ? ["'self'", 'https://api.torn.com', 'https://weav3r.dev', 'https://yata.yt']
+      ? ["'self'", 'https://api.torn.com', 'https://prombot.co.uk', 'https://weav3r.dev', 'https://yata.yt']
       : ["'self'", 'https://api.torn.com', 'https://weav3r.dev'];
     assert.deepEqual(hosts, allowed, `${page}: unerwartete Ziel-Hosts`);
 

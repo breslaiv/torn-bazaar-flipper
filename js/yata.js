@@ -36,7 +36,7 @@ export const YATA_URL = `${YATA_BASE}${YATA_TRAVEL_PATH}`;
 // weav3r steht dabei, weil deren Website Auslandsvorraete anzeigt. Sobald die
 // Route bekannt ist (die Diagnose-Seite sucht danach), laesst sich die Quelle
 // umstellen, ohne dass etwas neu ausgeliefert werden muss.
-const ALLOWED_HOSTS = ['yata.yt', 'weav3r.dev'];
+const ALLOWED_HOSTS = ['yata.yt', 'weav3r.dev', 'prombot.co.uk'];
 
 /**
  * Baut die Abrufadresse aus den Einstellungen.

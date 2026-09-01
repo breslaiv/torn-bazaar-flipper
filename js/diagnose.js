@@ -5,6 +5,7 @@ import {
 } from './weav3r.js?v=12';
 import { fetchKeyInfo } from './torn.js?v=12';
 import { fetchTravelStocks, travelUrl } from './yata.js?v=12';
+import { probeUrl, PROMETHEUS_BASE, PROMETHEUS_CANDIDATES } from './probe.js?v=12';
 import { countryName } from './travel.js?v=12';
 import { setStatus, fmtMoney, showVersion } from './ui.js?v=12';
 
@@ -190,6 +191,49 @@ async function findTravelRoutes() {
   setStatus(`${treffer.length} mögliche Route(n) — Bericht kopieren und schicken.`, 'ok');
 }
 
+/**
+ * Klopft Prometheus ab - die zweite Sammelstelle fuer Auslandsvorraete neben
+ * YATA. Dass es sie gibt, ist belegt; unter welcher Adresse sie Daten
+ * herausgibt, nicht. Also fragen wir nach, statt zu raten.
+ */
+async function findPrometheus() {
+  reset();
+  emit(`Klopft ${PROMETHEUS_BASE} ab — ${PROMETHEUS_CANDIDATES.length} Pfade.`);
+  emit('Prometheus sammelt Auslandsvorräte wie YATA und dient TornTools als Ausweichquelle.');
+  emit();
+  setStatus('Frage Prometheus…');
+
+  const treffer = [];
+  for (const path of PROMETHEUS_CANDIDATES) {
+    const r = await probeUrl(`${PROMETHEUS_BASE}${path}`);
+    if (r.error) {
+      emit(`  ${path.padEnd(24)} Fehler: ${r.error}`);
+      continue;
+    }
+    emit(`  ${path.padEnd(24)} ${String(r.status).padStart(3)}${r.ok ? '  ✓' : ''}`);
+    if (r.ok) {
+      treffer.push(r);
+      if (r.keys.length) emit(`     Schlüssel: ${r.keys.join(', ')}`);
+    }
+  }
+
+  emit();
+  for (const r of treffer) {
+    emit(`--- Antwort von ${r.path} ---`);
+    emit(r.sample);
+    emit();
+  }
+
+  if (!treffer.length) {
+    emit('Kein geratener Pfad antwortet. Ein Netzwerkfehler bei allen bedeutet meist,');
+    emit('dass Prometheus keine Zugriffe von fremden Seiten erlaubt (CORS) — dann ist');
+    emit('die Quelle für diese App nicht nutzbar, egal wie gut die Daten sind.');
+  }
+  setStatus(treffer.length
+    ? `${treffer.length} mögliche Route(n) — Bericht kopieren und schicken.`
+    : 'Nichts gefunden — Bericht kopieren und schicken.', treffer.length ? 'ok' : 'error');
+}
+
 async function testTorn() {
   const settings = loadSettings();
   reset();
@@ -215,6 +259,7 @@ function init() {
   document.getElementById('testTorn').addEventListener('click', testTorn);
   document.getElementById('testYata').addEventListener('click', testYata);
   document.getElementById('findTravel').addEventListener('click', findTravelRoutes);
+  document.getElementById('findPrometheus').addEventListener('click', findPrometheus);
   document.getElementById('copyReport').addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(reportEl.textContent);
