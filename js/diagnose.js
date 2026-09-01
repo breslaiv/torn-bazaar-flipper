@@ -225,9 +225,17 @@ async function findPrometheus() {
   }
 
   if (!treffer.length) {
-    emit('Kein geratener Pfad antwortet. Ein Netzwerkfehler bei allen bedeutet meist,');
-    emit('dass Prometheus keine Zugriffe von fremden Seiten erlaubt (CORS) — dann ist');
-    emit('die Quelle für diese App nicht nutzbar, egal wie gut die Daten sind.');
+    emit('Kein Pfad antwortet. Wichtig zu wissen, was das beweist — und was nicht:');
+    emit();
+    emit('Ohne CORS-Freigabe darf der Browser nicht einmal den Status einer fremden');
+    emit('Antwort lesen. Ein 404 sieht hier deshalb genauso aus wie eine Blockade.');
+    emit('Belegt ist also nur: von dieser Seite aus ist Prometheus nicht lesbar.');
+    emit('Ob es die Pfade gibt, sagt dieser Bericht nicht.');
+    emit();
+    emit('Der Sammler läuft aber serverseitig in GitHub Actions, und dort gilt CORS');
+    emit('nicht. Der Workflow „Quellen abklopfen" fragt dieselben Pfade von dort ab');
+    emit('und zeigt die echten Statuscodes — findet er eine Route, kann der Sammler');
+    emit('sie nutzen, auch wenn diese Seite selbst nie an sie herankäme.');
   }
   setStatus(treffer.length
     ? `${treffer.length} mögliche Route(n) — Bericht kopieren und schicken.`

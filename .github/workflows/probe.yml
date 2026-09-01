@@ -1,0 +1,25 @@
+# Klopft Vorratsquellen serverseitig ab - von Hand ausgeloest.
+#
+# Der Browser kann das nur eingeschraenkt: ohne CORS-Freigabe darf er nicht
+# einmal den Status einer fremden Antwort lesen, und ein 404 sieht dort
+# genauso aus wie eine Blockade. Hier gibt es diese Regel nicht.
+
+name: Quellen abklopfen
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Routen abfragen
+        run: node tools/probe-travel.mjs

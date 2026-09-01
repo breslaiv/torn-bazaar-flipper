@@ -519,6 +519,19 @@ Schlüssel und der Anfang der Antwort — roh gezeigt statt gedeutet. Findet sic
 lässt sich die Quelle darauf umstellen, ohne dass etwas neu ausgeliefert werden muss; alle drei
 Hosts sind zugelassen.
 
+**Was ein Browser dabei nicht herausfinden kann.** Ohne CORS-Freigabe darf `fetch` nicht einmal
+den Status einer fremden Antwort lesen — ein 404 und eine Blockade sind dort ununterscheidbar,
+beides meldet sich als Netzwerkfehler. Bei prombot.co.uk kam auf alle zwölf Pfade genau das:
+belegt ist damit nur, dass die Seite Prometheus nicht lesen darf, nicht dass es die Routen nicht
+gibt.
+
+Der Workflow **Quellen abklopfen** (von Hand auslösbar) fragt dieselben Pfade aus GitHub Actions
+ab, wo CORS nicht gilt, und zeigt echte Statuscodes, Inhaltstypen und ob eine `Access-Control-
+Allow-Origin`-Freigabe dabei ist. Eine Gegenprobe auf eine bekannte Route läuft mit, damit ein
+Netzproblem nicht wie ein leeres Ergebnis aussieht. **Findet sich dort eine Route, kann der
+Sammler sie nutzen — auch wenn die Seite selbst nie an sie herankäme**, denn er läuft ohnehin
+serverseitig.
+
 Der Grund für den Aufwand ist Ausfallsicherheit: YATA ist crowdsourced und war in der
 Vergangenheit zeitweise offline — genau dafür existiert Prometheus. In Torn werden diese Zahlen seit jeher von Spielern
 gesammelt, und [YATA](https://yata.yt) ist die verbreitetste Sammelstelle. Deshalb steht
