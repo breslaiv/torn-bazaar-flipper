@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bazaar Flip">
 <meta name="format-detection" content="telephone=no">
-<meta name="app-build" content="10">
+<meta name="app-build" content="11">
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'none';
   script-src 'self';
@@ -164,7 +164,9 @@
     <h2>Treffer (<span id="rowCount">0</span>)</h2>
 
     <!-- Auf dem Handy ist die Kopfzeile ausgeblendet; sortiert wird hier. -->
-    <div class="sortbar">
+    <p class="hint" id="normalState"></p>
+
+  <div class="sortbar">
       <label class="field" for="sortSelect">Sortieren nach</label>
       <select id="sortSelect"></select>
       <button id="sortDir" class="dir" aria-label="absteigend">&darr;</button>
@@ -187,6 +189,6 @@
   <span id="status"></span>
 </div>
 
-<script type="module" src="js/app.js?v=10"></script>
+<script type="module" src="js/app.js?v=11"></script>
 </body>
 </html>

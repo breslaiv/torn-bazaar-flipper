@@ -1,9 +1,9 @@
-import { loadSettings, saveSettings } from './storage.js?v=10';
-import { fetchHealth, fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js?v=10';
-import { fetchKeyInfo } from './torn.js?v=10';
-import { fetchTravelStocks, travelUrl } from './yata.js?v=10';
-import { countryName } from './travel.js?v=10';
-import { setStatus, fmtMoney, showVersion } from './ui.js?v=10';
+import { loadSettings, saveSettings } from './storage.js?v=11';
+import { fetchHealth, fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js?v=11';
+import { fetchKeyInfo } from './torn.js?v=11';
+import { fetchTravelStocks, travelUrl } from './yata.js?v=11';
+import { countryName } from './travel.js?v=11';
+import { setStatus, fmtMoney, showVersion } from './ui.js?v=11';
 
 const reportEl = document.getElementById('report');
 const lines = [];

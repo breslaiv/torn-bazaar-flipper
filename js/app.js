@@ -1,9 +1,10 @@
-import { DEFAULTS } from './config.js?v=10';
-import { loadSettings, saveSettings, clearSettings, hasSavedSettings } from './storage.js?v=10';
-import { runFlipScan, runDollarScan, verifyWithTorn } from './scan.js?v=10';
+import { DEFAULTS } from './config.js?v=11';
+import { loadSettings, saveSettings, clearSettings, hasSavedSettings } from './storage.js?v=11';
+import { runFlipScan, runDollarScan, verifyWithTorn } from './scan.js?v=11';
 import {
   renderRows, renderHead, setStatus, installSorting, fmtMoneyShort, showVersion,
-} from './ui.js?v=10';
+} from './ui.js?v=11';
+import { statsMap, STATS_URL } from './normal.js?v=11';
 
 const NUMERIC_FIELDS = new Set([
   'sellFactor', 'marketFeePct', 'prescreenPct', 'maxCandidates', 'listingsPerItem',
@@ -13,6 +14,7 @@ const NUMERIC_FIELDS = new Set([
 ]);
 
 let currentRows = [];
+let normalStats = new Map();
 let sorter = null;
 let renderOpts = {};
 let controller = null;
@@ -108,7 +110,9 @@ async function runScan() {
 
   try {
     const scan = settings.scanMode === 'dollar' ? runDollarScan : runFlipScan;
-    const { rows, stats } = await scan(settings, { onProgress, signal: controller.signal });
+    const { rows, stats } = await scan(settings, {
+      onProgress, signal: controller.signal, normalStats,
+    });
 
     currentRows = rows;
     sorter.resort();
@@ -145,6 +149,32 @@ function syncModeVisibility() {
   document.querySelectorAll('[data-flip-only]').forEach((el) => {
     el.style.display = dollar ? 'none' : '';
   });
+}
+
+/**
+ * Holt den gesammelten Normalbereich. Same-origin, klein, und ohne ihn
+ * laeuft der Scanner wie bisher - die Spalte bleibt dann leer.
+ */
+async function loadNormalStats() {
+  try {
+    const res = await fetch(`${STATS_URL}?t=${Math.floor(Date.now() / 3600000)}`, {
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    normalStats = statsMap(data);
+    const el = document.getElementById('normalState');
+    if (el && normalStats.size) {
+      el.textContent = `Normalbereich für ${normalStats.size} Items `
+        + `aus ${data.runs} Messungen der letzten ${data.windowDays} Tage.`;
+    }
+  } catch (err) {
+    // Kein Grund, den Nutzer zu behelligen - die Spalte bleibt leer und der
+    // Rest laeuft. Aber protokolliert wird es: ein stilles catch hat hier
+    // schon einmal einen Tippfehler verschluckt, und die Spalte sah aus wie
+    // "noch keine Daten" statt wie ein Fehler.
+    console.warn('Normalbereich nicht geladen:', err.message);
+  }
 }
 
 function init() {
@@ -188,6 +218,7 @@ function init() {
   });
 
   scheduleAutoRefresh();
+  loadNormalStats();
 }
 
 init();

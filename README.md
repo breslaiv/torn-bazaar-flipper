@@ -47,6 +47,37 @@ im Bazaar stehen — der Kaufpreis ist per Definition 1, der Profit praktisch de
 Marktwert. Diese Listings sind aus `/marketplace/{id}` bewusst ausgeschlossen und nur
 über diese Route zu finden.
 
+## Der Normalbereich
+
+**„20% unter Marktpreis" heißt beim einen Item Schnäppchen und beim anderen Normalzustand.**
+Der Marktpreis ist zudem selbst ein nachlaufender Wert — er entsteht aus vergangenen Verkäufen.
+Der ehrlichere Maßstab ist, was dieses Item in den letzten Tagen tatsächlich gekostet hat.
+
+Keine der drei Quellen bietet einen Preisverlauf an, also legt ein stündlicher Workflow
+(`collect-prices.yml`) ihn selbst an. Die Spalte *ggü. üblich* zeigt den Abstand zum üblichen
+Tiefstpreis; liegt ein Angebot unter dem unteren Zehntel seiner eigenen Verteilung, steht
+*selten billig* daneben. Ein Beispiel aus dem Browsertest, das den Unterschied trägt:
+
+| Item | Marge | ggü. üblich |
+|---|---|---|
+| Xanax | 18,8% | **−12%, selten billig** |
+| Dahlia | 35,7% | +2% |
+
+Nach der Marge wäre Dahlia der bessere Flip. Tatsächlich ist er der Normalzustand — Xanax ist
+der Fund. Diese Unterscheidung kann `market_price` nicht ausdrücken.
+
+Zwei Dateien, aus einem Grund:
+
+- `data/prices/JJJJ-MM.ndjson` — Rohdaten, **eine Zeile je Lauf**, angehängt statt umgeschrieben.
+  Git speichert die Datei damit in Deltas statt jedes Mal von vorn.
+- `data/price-stats.json` — das, was der Browser liest: je Item vier Kennzahlen statt tausender
+  Messpunkte. Ein Telefon soll keine Megabytes laden, um zu erfahren, ob ein Preis niedrig ist.
+
+**Unter drei Beobachtungen gibt es keinen Normalbereich** — dann bleibt es beim bisherigen
+Vergleich gegen den Marktpreis, und die Spalte bleibt leer. Historie lässt sich nicht
+nachträglich erzeugen; deshalb sammelt der Workflow ab sofort, auch wenn die Auswertung erst
+in ein paar Tagen trägt.
+
 ## Zwei Fallen, die der Client abfängt
 
 **Gesponserte Zeilen.** Sowohl bei Listings als auch bei Tradern hängt die API einen
@@ -740,9 +771,12 @@ js/offersStore.js   Angebote merken, Status fortschreiben, Notizen halten
 js/table.js         Tabellenbau mit data-label für die Kartenansicht
 js/ledgerPage.js    Verdrahtung der Ledger-Seite
 tools/make-icon.py  erzeugt icon-180.png fuer den iOS-Home-Screen
+js/normal.js        Vergleich eines Preises mit dem Normalbereich seines Items
 tools/collect-travel.mjs sammelt Vorräte für GitHub Actions, mit der App-Logik
+tools/collect-prices.mjs sammelt Marktpreise und rechnet den Normalbereich
 tools/version-assets.py  stempelt APP_VERSION in jeden Import
-data/travel-stock.json   die gesammelte Historie, vom Workflow geschrieben
+data/travel-stock.json   die gesammelte Vorratshistorie, vom Workflow geschrieben
+data/price-stats.json    Normalbereich je Item, stündlich neu gerechnet
 tests/              node --test, ohne Abhängigkeiten (inkl. Secret-Scan)
 ```
 
@@ -755,7 +789,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-335 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
+349 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
 Parallelität und Abbruch, Zeitstempel-Deutung, Scan-Ablauf, Markup, Sortierung,
 Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status, Bestandsbewertung, Flugplanung, Modellwahl, Vorratsvorhersage und Persistenz sowie die Key-, CSP-,
 Workflow- und Mobile-Prüfungen aus den Abschnitten oben.

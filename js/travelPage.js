@@ -1,20 +1,20 @@
 // Verdrahtung der Flugseite.
 
-import { loadSettings, saveSettings } from './storage.js?v=10';
-import { fetchMarketplace } from './weav3r.js?v=10';
+import { loadSettings, saveSettings } from './storage.js?v=11';
+import { fetchMarketplace } from './weav3r.js?v=11';
 import {
   fetchTravelStocks, parseTravelExport, travelUrl, YataError, YATA_URL,
-} from './yata.js?v=10';
+} from './yata.js?v=11';
 import {
   COUNTRIES, AIRSTRIPS, countryName, oneWayMinutes, planTrips, planCountry,
-} from './travel.js?v=10';
+} from './travel.js?v=11';
 import {
   loadStock, saveStock, recordSnapshot, seriesFor, predict, estimate,
   chanceAtLeast, backtest, restockInfo, mergeStock,
-} from './travelStock.js?v=10';
-import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=10';
-import { renderTable } from './table.js?v=10';
-import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=10';
+} from './travelStock.js?v=11';
+import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=11';
+import { renderTable } from './table.js?v=11';
+import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=11';
 
 let prices = new Map();
 let stocks = new Map();      // code -> [{itemId, itemName, cost, quantity}]

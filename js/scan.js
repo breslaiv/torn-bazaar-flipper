@@ -1,11 +1,12 @@
 // Ablauf eines Scans. Getrennt vom UI, damit er testbar bleibt.
 
-import { fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js?v=10';
-import { fetchItemMarketLow } from './torn.js?v=10';
+import { fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js?v=11';
+import { fetchItemMarketLow } from './torn.js?v=11';
 import {
   prescreen, pickBuyer, buildFlipRows, buildDollarRows, passesFilters, sortByTotalProfit,
   allocateBudget,
-} from './profit.js?v=10';
+} from './profit.js?v=11';
+import { withNormal } from './normal.js?v=11';
 
 const noop = () => {};
 
@@ -45,7 +46,8 @@ async function eachLimited(items, limit, worker) {
  * prescreen() vorher auf die Items, bei denen ueberhaupt eine Spanne
  * zwischen billigstem Listing und Marktpreis besteht.
  */
-export async function runFlipScan(settings, { onProgress = noop, signal, deps = {} } = {}) {
+export async function runFlipScan(settings, opts = {}) {
+  const { onProgress = noop, signal, deps = {} } = opts;
   const api = {
     fetchMarketplace, fetchItemListings, fetchItemTraders, ...deps,
   };
@@ -122,11 +124,13 @@ export async function runFlipScan(settings, { onProgress = noop, signal, deps = 
 
   // Erst wenn alle Zeilen feststehen, laesst sich das Budget sinnvoll
   // verteilen - vorher weiss keine Zeile, welche besseren es noch gibt.
-  return { rows: sortByTotalProfit(allocateBudget(rows, settings.budget)), stats };
+  const priced = withNormal(allocateBudget(rows, settings.budget), opts.normalStats || new Map());
+  return { rows: sortByTotalProfit(priced), stats };
 }
 
 /** $1-Bazaare: alles, was fuer einen Dollar zu haben ist. */
-export async function runDollarScan(settings, { onProgress = noop, signal, deps = {} } = {}) {
+export async function runDollarScan(settings, opts = {}) {
+  const { onProgress = noop, signal, deps = {} } = opts;
   const api = { fetchDollarItems, ...deps };
   const pages = Math.max(1, Math.ceil(settings.maxCandidates / 100));
   const collected = [];
@@ -140,8 +144,9 @@ export async function runDollarScan(settings, { onProgress = noop, signal, deps 
   }
 
   const rows = buildDollarRows(collected, settings).filter((r) => passesFilters(r, settings));
+  const priced = withNormal(allocateBudget(rows, settings.budget), opts.normalStats || new Map());
   return {
-    rows: sortByTotalProfit(allocateBudget(rows, settings.budget)),
+    rows: sortByTotalProfit(priced),
     stats: {
       catalogSize: collected.length,
       candidates: collected.length,

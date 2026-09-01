@@ -13,10 +13,10 @@
 // Die Feldnamen innerhalb von data/params sind in der Spec bewusst offen
 // ("Dynamic key-value pairs"), deshalb bleibt die Extraktion defensiv.
 
-import { TORN_API_BASE, TORN_RATE_LIMIT } from './config.js?v=10';
-import { RateLimiter } from './ratelimit.js?v=10';
-import { makeEvent, isValidEvent } from './ledger.js?v=10';
-import { isTradeEntry } from './tradelog.js?v=10';
+import { TORN_API_BASE, TORN_RATE_LIMIT } from './config.js?v=11';
+import { RateLimiter } from './ratelimit.js?v=11';
+import { makeEvent, isValidEvent } from './ledger.js?v=11';
+import { isTradeEntry } from './tradelog.js?v=11';
 
 export const limiter = new RateLimiter(TORN_RATE_LIMIT, 'torn-log');
 

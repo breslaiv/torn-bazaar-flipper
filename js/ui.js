@@ -1,5 +1,5 @@
-import { APP_VERSION } from './config.js?v=10';
-import { fmtAge } from './freshness.js?v=10';
+import { APP_VERSION } from './config.js?v=11';
+import { fmtAge } from './freshness.js?v=11';
 
 const money = new Intl.NumberFormat('en-US');
 
@@ -48,6 +48,7 @@ export const COLUMNS = [
   { key: 'sellNet', label: 'Netto', type: 'money' },
   { key: 'profitPerUnit', label: 'Profit/Stück', type: 'money', profit: true, strong: true },
   { key: 'profitPct', label: 'Marge', type: 'pct', profit: true },
+  { key: 'normalDiscount', label: 'ggü. üblich', type: 'normal' },
   { key: 'units', label: 'Menge', type: 'units' },
   { key: 'listingAgeHours', label: 'Alter', type: 'age' },
   { key: 'totalProfit', label: 'Gesamt', type: 'money', profit: true, strong: true },
@@ -124,6 +125,16 @@ function cellContent(col, row, opts) {
         ? `${units}<span class="tag">${fmtMoney(row.spend)}</span>`
         : units;
     }
+    case 'normal': {
+      // Ohne Historie bleibt es beim bisherigen Massstab - dann steht hier
+      // nichts, statt eine Zahl vorzutaeuschen.
+      const n = row.normal;
+      if (!n) return '<span class="muted">–</span>';
+      const sign = n.discount >= 0 ? '−' : '+';
+      const text = `${sign}${Math.abs(n.discount).toFixed(0)}%`;
+      return `<span class="${n.discount >= 0 ? 'pos' : 'neg'}">${text}</span>`
+        + (n.unusual ? '<span class="tag ok">selten billig</span>' : '');
+    }
     case 'age': {
       const hours = row.listingAgeHours;
       if (!Number.isFinite(hours)) return '<span class="muted">?</span>';
@@ -169,10 +180,16 @@ export function sortOptionsToHtml() {
 }
 
 /** Reine Sortierung, von Spaltenkopf und Auswahlfeld gemeinsam genutzt. */
+/** Wert einer Spalte fuer die Sortierung - fuer verschachtelte auch. */
+function sortValue(row, key) {
+  if (key === 'normalDiscount') return row.normal ? row.normal.discount : Number.NEGATIVE_INFINITY;
+  return row[key];
+}
+
 export function sortRows(rows, key, asc) {
   return [...rows].sort((a, b) => {
-    const x = a[key];
-    const y = b[key];
+    const x = sortValue(a, key);
+    const y = sortValue(b, key);
     if (typeof x === 'string' || typeof y === 'string') {
       return asc
         ? String(x ?? '').localeCompare(String(y ?? ''))
