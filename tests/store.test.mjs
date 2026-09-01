@@ -85,6 +85,51 @@ test('ein spaeterer Lauf haengt an, statt zu ersetzen', () => {
   });
 });
 
+test('die Grenze nimmt die juengsten Punkte, je Reihe getrennt', () => {
+  // Gelesen wird jetzt je Reihe mit ORDER BY ts DESC LIMIT statt der ganzen
+  // Tabelle. Beim Umbau ist genau das die Stelle, an der man sich vertut: DESC
+  // holt die neuesten, aber die Seite erwartet aufsteigende Zeit.
+  withDb((db) => {
+    saveSeries(db, {
+      'mex:8': Array.from({ length: 50 }, (_, i) => [1000 + i * 1000, 100 - i]),
+      'swi:20': Array.from({ length: 50 }, (_, i) => [1000 + i * 1000, 500 - i]),
+    });
+
+    const s = readSeries(db, { limit: 10 });
+    assert.equal(s['mex:8'].length, 10, 'die Grenze greift je Reihe');
+    assert.equal(s['swi:20'].length, 10, 'und nicht ueber alle zusammen');
+
+    // Aufsteigend, und es sind die juengsten zehn.
+    assert.deepEqual(s['mex:8'][0], [41000, 60]);
+    assert.deepEqual(s['mex:8'][9], [50000, 51]);
+    for (let i = 1; i < s['mex:8'].length; i++) {
+      assert.ok(s['mex:8'][i][0] > s['mex:8'][i - 1][0], 'nicht aufsteigend sortiert');
+    }
+  });
+});
+
+test('das Lesen haengt nicht daran, wie alt die Sammlung ist', () => {
+  // Der Grund fuer den Umbau: vorher las jede Anfrage die ganze Tabelle und
+  // sortierte sie nach ts - einer Spalte, die nicht am Anfang des
+  // Primaerschluessels steht. Gemessen an 227 Reihen wuchs das von 113 ms bei
+  // 0,3 Tagen Historie auf 6063 ms bei 22,7 Tagen; je Reihe gefragt blieb es
+  // bei 673 ms. Hier wird die Eigenschaft geprueft, nicht die Zeit: was
+  // zurueckkommt, darf nicht davon abhaengen, wieviel Alteres darunter liegt.
+  withDb((db) => {
+    const jung = Array.from({ length: 5 }, (_, i) => [900000 + i * 1000, 10 + i]);
+    saveSeries(db, { 'mex:8': jung });
+    const vorher = readSeries(db, { limit: 5 })['mex:8'];
+
+    // Viel Altes dazu - es liegt zeitlich davor und darf nichts aendern.
+    saveSeries(db, {
+      'mex:8': Array.from({ length: 2000 }, (_, i) => [1000 + i * 100, i % 90]),
+    });
+    const nachher = readSeries(db, { limit: 5 })['mex:8'];
+
+    assert.deepEqual(nachher, vorher, 'aeltere Punkte veraendern die juengsten');
+  });
+});
+
 test('nur ein Land lesen', () => {
   withDb((db) => {
     saveSeries(db, { 'mex:8': [[1000, 5]], 'swi:20': [[1000, 40]] });
