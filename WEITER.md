@@ -25,9 +25,13 @@ Was läuft:
 | GitHub Actions | sammelt weiter als Zweitmessung, falls die Kiste aus ist |
 
 **Der Zugriff läuft nur noch lokal.** GitHub Pages ist nicht mehr das Ziel;
-das Telefon kommt über Tailscale an `http://ubuntu-server-home.tail4968d8.ts.net:8080`.
-`torn-web` hängt weiterhin ausschließlich an 127.0.0.1 — dazwischen steht
-`tailscale serve` als Weiterleitung, damit die Bindung unangetastet bleibt.
+das Telefon kommt über Tailscale herein. `torn-web` hängt weiterhin
+ausschließlich an 127.0.0.1 — dazwischen steht `tailscale serve` als
+Weiterleitung auf Port 8080, damit die Bindung unangetastet bleibt.
+
+Die Adresse steht bewusst nicht hier: das Repository ist öffentlich, und ein
+Tailnet-Name gehört nicht dauerhaft in eine Historie, die jeder lesen kann.
+`tailscale status` und `tailscale serve status` zeigen sie auf der Maschine.
 
 Punkt 1 bis 3 der alten Liste sind **abgearbeitet**; die Antworten stehen
 unten, weil sie bestimmen, was jetzt noch sinnvoll ist. Kurz:
