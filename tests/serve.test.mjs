@@ -101,6 +101,46 @@ test('der Vorratsbestand kommt aus der Datenbank, nicht von der Platte', async (
   });
 });
 
+test('grosse Messreihen gehen gepackt ueber die Leitung', async () => {
+  // Seit die Fassung nur noch lokal laeuft, liefert der Server deutlich mehr
+  // Historie aus - gemessen ein Fuenftel der Groesse, sobald gepackt wird.
+  // Ohne das waere der Aufruf vom Telefon ueber Tailscale spuerbar zaeh.
+  const reihe = Array.from({ length: 2000 }, (_, i) => [1700000000000 + i * 60000, i % 300]);
+  const payload = { collectedAt: 42, source: 'x', countries: 1, points: reihe.length, series: { 'mex:8': reihe } };
+
+  await withServer({ stock: () => payload }, async (base) => {
+    const res = await fetch(`${base}/data/travel-stock.json`, {
+      headers: { 'Accept-Encoding': 'gzip' },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-encoding'), 'gzip');
+    assert.match(res.headers.get('vary') || '', /Accept-Encoding/);
+    // fetch packt selbst aus - der Inhalt muss unveraendert ankommen.
+    assert.deepEqual(await res.json(), payload);
+  });
+});
+
+test('wer nicht auspacken kann, bekommt die rohe Fassung', async () => {
+  const reihe = Array.from({ length: 2000 }, (_, i) => [1700000000000 + i * 60000, i % 300]);
+  const payload = { series: { 'mex:8': reihe } };
+
+  await withServer({ stock: () => payload }, async (base) => {
+    const res = await fetch(`${base}/data/travel-stock.json`, {
+      headers: { 'Accept-Encoding': 'identity' },
+    });
+    assert.equal(res.headers.get('content-encoding'), null, 'ungefragt wird nicht gepackt');
+    assert.deepEqual(await res.json(), payload);
+  });
+});
+
+test('kurze Antworten bleiben ungepackt', async () => {
+  // Unterhalb eines Netzpakets kostet Packen nur Rechenzeit.
+  await withServer({ health: () => ({ ok: true }) }, async (base) => {
+    const res = await fetch(`${base}/health`, { headers: { 'Accept-Encoding': 'gzip' } });
+    assert.equal(res.headers.get('content-encoding'), null);
+  });
+});
+
 test('ein Fehler in der Datenbank wird gemeldet, nicht verschwiegen', async () => {
   await withServer({ stock: () => { throw new Error('Datenbank gesperrt'); } }, async (base) => {
     const res = await fetch(`${base}/data/travel-stock.json`);
@@ -177,5 +217,5 @@ test('ohne Angabe hoert der Server nur auf sich selbst', () => {
 
 test('unsinnige Zahlen fallen auf die Vorgabe zurueck', () => {
   assert.equal(parseArgs(['--port', 'abc']).port, 8080);
-  assert.equal(parseArgs(['--limit', '0']).limit, 500);
+  assert.equal(parseArgs(['--limit', '0']).limit, 1000);
 });

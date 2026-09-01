@@ -14,8 +14,8 @@ globalThis.localStorage = fakeStorage();
 const {
   recordSnapshot, estimate, predict, chanceAtLeast, backtest,
   evaluateModels, chooseModel, conformalInterval,
-  weightAt, weightedQuantile, seriesFor, loadStock, saveStock,
-  MAX_SAMPLES, HALF_LIFE_MINUTES, MIN_CHECKS,
+  weightAt, weightedQuantile, seriesFor, loadStock, saveStock, mergeStock,
+  MAX_SAMPLES, MAX_HISTORY, BACKTEST_POINTS, BACKTEST_ORIGINS, HALF_LIFE_MINUTES, MIN_CHECKS,
 } = await import('../js/travelStock.js');
 const { MODELS, modelByKey, runModel } = await import('../js/travelModels.js');
 
@@ -121,12 +121,92 @@ test('Laender und Items bleiben getrennt', () => {
 
 test('die Reihe waechst nicht unbegrenzt', () => {
   let store = {};
-  for (let i = 0; i < MAX_SAMPLES + 15; i++) {
+  for (let i = 0; i < MAX_HISTORY + 15; i++) {
     store = recordSnapshot(store, 'mex', [{ itemId: 1, quantity: 500 - i }], T0 + i * 2 * MIN);
   }
   const s = seriesFor(store, 'mex', 1);
-  assert.equal(s.length, MAX_SAMPLES);
-  assert.equal(s[s.length - 1][1], 500 - (MAX_SAMPLES + 14), 'die juengste bleibt');
+  assert.equal(s.length, MAX_HISTORY);
+  assert.equal(s[s.length - 1][1], 500 - (MAX_HISTORY + 14), 'die juengste bleibt');
+});
+
+test('die Rechnung sieht mehr als der Browserspeicher behaelt', () => {
+  // Der Kern der Trennung: gekuerzt wird nur beim Ablegen. Vorher bestimmte
+  // die Groesse des localStorage, wie viel die Schaetzung sehen darf - und
+  // damit sah sie bei wachsender Datenbank einen immer kleineren Ausschnitt.
+  globalThis.localStorage = fakeStorage();
+
+  const lang = Array.from({ length: MAX_SAMPLES + 60 }, (_, i) => [T0 + i * 2 * MIN, 500 - i]);
+  const zurueck = saveStock({ 'mex:1': lang });
+
+  assert.equal(zurueck['mex:1'].length, lang.length, 'zurueck kommt die volle Reihe');
+  assert.equal(loadStock()['mex:1'].length, MAX_SAMPLES, 'abgelegt wird nur der Rest');
+  assert.deepEqual(
+    loadStock()['mex:1'][MAX_SAMPLES - 1],
+    lang[lang.length - 1],
+    'und zwar die juengsten Punkte',
+  );
+});
+
+test('die Schaetzung sieht die ganze Reihe, die Bewertung nur ihr juengeres Ende', () => {
+  // Der Handel, der lange Historie ueberhaupt erlaubt: Abverkauf, Zyklen und
+  // Timer laufen linear und bekommen alles. Der Modellwettbewerb waechst
+  // quadratisch und bekommt deshalb einen festen Ausschnitt - gemessen sonst
+  // 140 s fuer eine Ansicht mit 227 Reihen statt 0,5 s.
+  const lang = Array.from({ length: 400 }, (_, i) => [T0 + i * 5 * MIN, 300 - (i % 60) * 5]);
+
+  assert.equal(estimate(lang).samples, 400, 'der Abverkauf sieht jeden Punkt');
+
+  // Gleiches Ergebnis wie mit dem blossen Ausschnitt: mehr schaut die
+  // Bewertung nicht an.
+  assert.deepEqual(backtest(lang), backtest(lang.slice(-BACKTEST_POINTS)));
+});
+
+test('geprueft wird auf Flugfristen, nicht auf den naechsten Messpunkt', () => {
+  // Der Fehler, den das behebt: geprueft wurde auf die naechsten drei
+  // Messungen, also im Mittel 8 Minuten. Auf dieser Frist aendert sich ein
+  // Regal in 86 % der Faelle nicht - "bleibt wie es ist" gewann damit 81 %
+  // der Reihen mit Fehler 0,0, und kein besseres Verfahren konnte sich
+  // zeigen. Entschieden wird aber auf Flugdauer, 26 bis 297 Minuten.
+  const lang = series(Array.from({ length: 80 }, (_, i) => [i * 5, 400 - (i % 40) * 10]));
+  const results = evaluateModels(lang);
+
+  const fristen = [...results.values()].flatMap((r) => r.residuals.map((x) => x.horizon));
+  assert.ok(fristen.length > 0, 'ohne Kontrollen ist die Bewertung wertlos');
+  assert.ok(
+    Math.min(...fristen) >= 24,
+    `kuerzeste geprüfte Frist ${Math.min(...fristen)} min - unter der kuerzesten Flugzeit`,
+  );
+  assert.ok(Math.max(...fristen) >= 100, `laengste geprüfte Frist nur ${Math.max(...fristen)} min`);
+});
+
+test('eine zu kurze Reihe wird nicht geprueft statt scheinbar geprueft', () => {
+  // Lieber "zu wenig Daten" als eine Guete, die auf einer Frist entstand,
+  // auf der niemand fliegt.
+  const kurz = series([[0, 100], [5, 90], [10, 80], [15, 70]]);
+  const results = evaluateModels(kurz);
+  const checks = [...results.values()].reduce((s, r) => s + r.residuals.length, 0);
+  assert.equal(checks, 0, 'zwanzig Minuten Verlauf ergeben keine Flugfrist');
+});
+
+test('der Modellwettbewerb bleibt bei langen Reihen bezahlbar', () => {
+  const lang = Array.from({ length: 400 }, (_, i) => [T0 + i * 5 * MIN, 300 - (i % 60) * 5]);
+  const results = evaluateModels(lang.slice(-BACKTEST_POINTS));
+  for (const r of results.values()) {
+    // Je Pruefpunkt hoechstens drei Horizonte.
+    assert.ok(
+      r.residuals.length <= BACKTEST_ORIGINS * 3,
+      `${r.key}: ${r.residuals.length} Pruefungen, mehr als ${BACKTEST_ORIGINS * 3}`,
+    );
+  }
+});
+
+test('zusammenfuehren wirft die Historie des Servers nicht weg', () => {
+  // Der lokale Server liefert die Reihen aus SQLite - deutlich mehr als in den
+  // Browserspeicher passt. Frueher schnitt mergeStock() sie auf 40 zurecht,
+  // bevor irgendeine Schaetzung sie zu sehen bekam.
+  const viele = Array.from({ length: 300 }, (_, i) => [T0 + i * 2 * MIN, 500 - i]);
+  const merged = mergeStock({}, { 'mex:1': viele });
+  assert.equal(merged['mex:1'].length, 300, 'nichts abgeschnitten');
 });
 
 test('unbrauchbare Mengen landen nicht in der Reihe', () => {
@@ -222,17 +302,23 @@ test('ohne Beobachtung gibt es weder Zahl noch Bereich', () => {
 test('die Chance auf die eigene Kapazitaet ist die eigentliche Auskunft', () => {
   // Gleichmaessiger Abverkauf: was rechnerisch reicht, reicht in allen
   // beobachteten Szenarien - und was nicht reicht, in keinem.
-  const s = series([[0, 100], [10, 90], [20, 80], [30, 70]]);
-  const now = T0 + 30 * MIN;
-  assert.equal(chanceAtLeast(s, 5, 10, now), 1, '60 Stueck erwartet, 5 gesucht');
-  assert.equal(chanceAtLeast(s, 80, 10, now), 0, 'so viel wird es sicher nicht');
+  //
+  // Die Reihe misst in Halbstundenschritten, nicht mehr in Zehnminuten: seit
+  // die Bewertung auf Flugfristen ab 30 Minuten prueft, entsteht aus einer
+  // Reihe ueber 70 Minuten keine einzige Kontrolle mehr.
+  const s = series(Array.from({ length: 10 }, (_, i) => [i * 30, 400 - i * 10]));
+  const now = T0 + 270 * MIN;
+  assert.equal(chanceAtLeast(s, 5, 30, now), 1, 'reichlich vorhanden, 5 gesucht');
+  assert.equal(chanceAtLeast(s, 900, 30, now), 0, 'so viel wird es sicher nicht');
 });
 
 test('uneinheitliches Tempo ergibt eine Chance zwischen 0 und 1', () => {
-  // Mal 1/min, mal 9/min: ob 40 Stueck reichen, haengt am Tempo - und genau
-  // das soll die Zahl sagen, statt sich auf eines festzulegen.
-  const s = series([[0, 100], [10, 90], [20, 10], [30, 100], [40, 90]]);
-  const chance = chanceAtLeast(s, 40, 10, T0 + 40 * MIN);
+  // Mal langsam, mal schnell: ob 40 Stueck reichen, haengt am Tempo - und
+  // genau das soll die Zahl sagen, statt sich auf eines festzulegen.
+  const s = series([
+    [0, 100], [30, 90], [60, 10], [90, 100], [120, 90], [150, 20], [180, 100], [210, 90],
+  ]);
+  const chance = chanceAtLeast(s, 40, 30, T0 + 210 * MIN);
   assert.ok(chance > 0 && chance < 1, `${chance} sollte dazwischen liegen`);
 });
 
@@ -252,9 +338,11 @@ test('backtest sagt aus der Vergangenheit die Gegenwart vorher', () => {
 test('ein einzelner Einbruch zeigt sich im groessten Fehler', () => {
   // Der Median bleibt klein - das ist sein Sinn. Aufdecken muss ihn deshalb
   // der schlechteste Fall, und der wird mitgefuehrt.
-  const einbruch = series([[0, 500], [10, 480], [20, 460], [30, 10], [40, 5]]);
+  const einbruch = series([
+    [0, 500], [30, 480], [60, 460], [90, 440], [120, 10], [150, 8], [180, 6], [210, 5],
+  ]);
   const a = backtest(einbruch);
-  assert.ok(a.checks >= 2);
+  assert.ok(a.checks >= 2, `nur ${a.checks} Kontrollen`);
   assert.ok(a.worstAbsError > 300, `groesster Fehler ${a.worstAbsError}`);
   assert.ok(a.coverage < 1, 'nicht jeder Wert lag im Bereich');
 });

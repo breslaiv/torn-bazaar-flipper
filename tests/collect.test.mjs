@@ -7,7 +7,7 @@ function fakeStorage() {
 }
 globalThis.localStorage = fakeStorage();
 
-const { mergeStock, MAX_SAMPLES } = await import('../js/travelStock.js');
+const { mergeStock, MAX_SAMPLES, MAX_HISTORY } = await import('../js/travelStock.js');
 
 const T0 = 1_700_000_000_000;
 const MIN = 60000;
@@ -43,11 +43,18 @@ test('unbrauchbare Punkte kommen nicht durch', () => {
   assert.deepEqual(merged['mex:1'], [[at(0), 5]]);
 });
 
-test('die Reihe bleibt gedeckelt', () => {
-  const viele = Array.from({ length: MAX_SAMPLES + 30 }, (_, i) => [at(i), 500 - i]);
+test('die Reihe bleibt gedeckelt - aber an der Rechengrenze, nicht an der Speichergrenze', () => {
+  // Der Deckel liegt jetzt bei MAX_HISTORY. MAX_SAMPLES gilt nur noch fuer
+  // das, was in den localStorage geschrieben wird; die Schaetzung darf mehr
+  // sehen, weil die Historie beim lokalen Server aus SQLite kommt.
+  const viele = Array.from({ length: MAX_HISTORY + 30 }, (_, i) => [at(i), 500 - i]);
   const merged = mergeStock({}, { 'mex:1': viele });
-  assert.equal(merged['mex:1'].length, MAX_SAMPLES);
-  assert.equal(merged['mex:1'][MAX_SAMPLES - 1][0], viele[viele.length - 1][0], 'die juengsten bleiben');
+  assert.equal(merged['mex:1'].length, MAX_HISTORY);
+  assert.equal(merged['mex:1'][MAX_HISTORY - 1][0], viele[viele.length - 1][0], 'die juengsten bleiben');
+
+  // Und eine Reihe, die den alten Deckel ueberschreitet, kommt vollstaendig an.
+  const mittel = Array.from({ length: MAX_SAMPLES + 30 }, (_, i) => [at(i), 500 - i]);
+  assert.equal(mergeStock({}, { 'mex:2': mittel })['mex:2'].length, MAX_SAMPLES + 30);
 });
 
 test('leere Sammlungen aendern nichts', () => {

@@ -11,12 +11,16 @@
 # braucht einen Blick auf die Maschine (Secure Boot, MOK-Dialog, welche
 # Modelle ueberhaupt passen) und wird danach von Hand gemacht.
 #
-# Aufruf:  ./tools/setup-local.sh [--yes] [--port 8080] [--interval 15]
+# Aufruf:  ./tools/setup-local.sh [--yes] [--port 8080] [--interval 30]
 
 set -euo pipefail
 
 PORT=8080
-INTERVAL=15
+# Gemessen, nicht geraten: YATA rechnet hoechstens einmal je Minute neu (der
+# kleinste beobachtete Abstand zwischen zwei Zeitstempeln ist exakt 60 s).
+# 30 s haelt die doppelte Marge und verliert nichts; 60 s waeren zu langsam,
+# weil eine Abfrage selbst mehrere Sekunden dauert.
+INTERVAL=30
 ASSUME_YES=0
 
 while [ $# -gt 0 ]; do

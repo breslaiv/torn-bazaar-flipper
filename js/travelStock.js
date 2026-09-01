@@ -22,17 +22,73 @@
 //                vergleichen. So kommt die Guete aus Messung statt aus einer
 //                Faustregel, die ich mir ausgedacht habe.
 
-import { median, weightAt, weightedQuantile, HALF_LIFE_MINUTES } from './stats.js?v=15';
-import { MODELS, modelByKey, runModel, drainRate } from './travelModels.js?v=15';
-import { findCycles, estimateTimer, estimateCapacity, nextRestock } from './restock.js?v=15';
+import { median, weightAt, weightedQuantile, HALF_LIFE_MINUTES } from './stats.js?v=17';
+import { MODELS, modelByKey, runModel, drainRate } from './travelModels.js?v=17';
+import { findCycles, estimateTimer, estimateCapacity, nextRestock } from './restock.js?v=17';
 
 // Weitergereicht, damit Aufrufer nur ein Modul kennen muessen.
 export { weightAt, weightedQuantile, HALF_LIFE_MINUTES };
 
 export const STOCK_KEY = 'tbf.travelstock.v1';
 
-/** Beobachtungen je Item. Mehr braucht keine Schaetzung, und der Platz ist knapp. */
+/**
+ * Beobachtungen je Item, die in den localStorage geschrieben werden.
+ *
+ * Hier ist der Platz knapp - ein paar Megabyte fuer alle Reihen zusammen - und
+ * deshalb bleibt diese Grenze klein. Sie gilt ausdruecklich nur fuer das, was
+ * den Browser ueberlebt, nicht fuer das, womit gerechnet wird.
+ */
 export const MAX_SAMPLES = 40;
+
+/**
+ * Beobachtungen je Item im Arbeitsspeicher, also fuer die Rechnung.
+ *
+ * Frueher war das dieselbe Zahl, und das war eine stille Fessel: die
+ * Datenbank des lokalen Servers waechst mit jeder Stunde, die Schaetzung sah
+ * aber immer nur die letzten 40 Punkte - bei 227 Reihen gemessene 3,5 Stunden
+ * statt der vorhandenen 5,8. Eine feste Anzahl wirft dabei immer mehr weg, je
+ * laenger gesammelt wird.
+ *
+ * Seit die Fassung nur noch lokal laeuft, ist das unnoetig: die Historie liegt
+ * in SQLite und kostet den Browser nichts als Ladezeit. Die Grenze hier ist
+ * nur noch eine Bremse gegen unbegrenztes Wachstum auf einem Telefon, kein
+ * Sparzwang.
+ */
+export const MAX_HISTORY = 1000;
+
+/**
+ * So viele Pruefpunkte bekommt der Modellwettbewerb, vom juengsten Ende her.
+ *
+ * evaluateModels() sagt von jedem Pruefpunkt aus voraus und vergleicht mit dem
+ * echten Verlauf - der Aufwand waechst also quadratisch mit der Reihenlaenge.
+ *
+ * Vierzig, und das ist gemessen: mit 25 Pruefpunkten faellt "daily" von 27 auf
+ * 4 Siege, weil es die MIN_CHECKS nicht mehr erreicht und gar nicht erst
+ * antreten darf. Pruefpunkte kosten also nicht nur Rechenzeit, sie kaufen
+ * Auswahlqualitaet - ein Modell, das mangels Kontrollen nie gewinnen kann, ist
+ * so gut wie nicht vorhanden.
+ */
+export const BACKTEST_ORIGINS = 40;
+
+/**
+ * So viel Reihe sieht der Modellwettbewerb ueberhaupt.
+ *
+ * Auch mit begrenzten Pruefpunkten rechnet jedes Modell noch die ganze Reihe
+ * durch - bei 1000 Punkten blieben 12 s fuer eine Ansicht. Diese Grenze macht
+ * die Kosten von der Reihenlaenge unabhaengig: eine volle Ansicht ueber 227
+ * Reihen kostet gemessen 650 ms, egal ob die Reihen 250 oder 1000 Punkte
+ * haben.
+ *
+ * 250 statt der frueheren 60, weil die Fristen jetzt bis 180 Minuten reichen:
+ * ein Pruefpunkt braucht drei Stunden Verlauf **nach** sich, sonst gibt es
+ * nichts zu vergleichen. Bei rund fuenf Minuten je Punkt deckt das Fenster
+ * damit etwa 20 Stunden ab.
+ *
+ * Das ist keine Einschraenkung der Vorhersage, sondern nur ihrer Bewertung:
+ * welches Modell heute passt, entscheidet sich am juengeren Verlauf. Timer,
+ * Zyklen und Abverkauf sehen weiterhin alles, was da ist - die laufen linear.
+ */
+export const BACKTEST_POINTS = 250;
 
 /** Naeher beieinander liegende Messungen sagen nichts Neues. */
 export const MIN_GAP_MS = 60 * 1000;
@@ -60,7 +116,7 @@ export function recordSnapshot(store, country, items, ts = Date.now()) {
     if (last && last[1] === item.quantity && ts - last[0] < 5 * MIN_GAP_MS) continue;
 
     series.push([ts, item.quantity]);
-    next[key] = series.slice(-MAX_SAMPLES);
+    next[key] = series.slice(-MAX_HISTORY);
   }
   return next;
 }
@@ -131,26 +187,88 @@ export const MIN_CHECKS = 4;
 export const DEFAULT_MODEL = 'cycle';
 
 /**
+ * Die Fristen, auf die geprueft wird - in Minuten, an Flugzeiten angelehnt.
+ *
+ * 30 entspricht ungefaehr Mexiko, 180 dem laengeren Ende; Suedafrika liegt mit
+ * 297 darueber, dafuer reicht die Historie noch nicht. Wer diese Liste
+ * aendert, aendert, worauf die App optimiert - das ist die wichtigste
+ * Entscheidung in dieser Datei.
+ */
+export const HORIZONS = [30, 60, 120, 180];
+
+/** Wieviel Abweichung von der Frist noch als Pruefung dieser Frist zaehlt. */
+const TOLERANZ = (frist) => Math.max(5, frist * 0.2);
+
+/**
+ * Die Messung, die einer Frist am naechsten liegt - oder null.
+ *
+ * Laeuft vom Pruefpunkt vorwaerts. Weil die Fristen aufsteigend geprueft
+ * werden, waere ein Zwischenspeicher moeglich; bei den vorkommenden Laengen
+ * ist die einfache Schleife schnell genug und liest sich besser.
+ */
+function naechsterPunkt(points, ab, ziel, frist) {
+  let beste = null;
+  let besterAbstand = Infinity;
+  for (let j = ab; j < points.length; j++) {
+    const abstand = Math.abs(points[j][0] - ziel);
+    if (abstand < besterAbstand) {
+      besterAbstand = abstand;
+      beste = points[j];
+    } else if (points[j][0] > ziel) {
+      break;                       // ab hier wird es nur noch schlechter
+    }
+  }
+  return beste && besterAbstand <= TOLERANZ(frist) * MINUTE ? beste : null;
+}
+
+/**
  * Prueft alle Modelle gegen die Vergangenheit der Reihe.
  *
- * Rollender Ursprung: von jedem Punkt aus wird der naechste vorhergesagt und
- * mit dem echten Wert verglichen. Zusaetzlich der uebernaechste und der
- * darauffolgende - so entstehen Fehler auch fuer laengere Horizonte, ohne
- * dass man sie annehmen muss. Ein Flug nach Suedafrika ist eine andere
- * Aufgabe als einer nach Mexiko, und der Bereich soll das wissen.
+ * Rollender Ursprung: von jedem Pruefpunkt aus wird vorhergesagt und mit dem
+ * echten Verlauf verglichen. Entscheidend ist, **auf welche Frist** geprueft
+ * wird - und das war lange falsch.
+ *
+ * Vorher wurden die naechsten drei Messpunkte vorhergesagt. Das ergab einen
+ * Horizont von im Mittel 8 Minuten, laengstens 20. Auf dieser Frist aendert
+ * sich ein Regal in 86 % der Faelle gar nicht, also gewann "bleibt wie es
+ * ist" auf 81 % der Reihen mit einem Fehler von 0,0 - eine gesaettigte
+ * Messlatte, auf der kein besseres Verfahren sich zeigen kann.
+ *
+ * Entschieden wird aber auf Flugdauer: 26 Minuten nach Mexiko, 297 nach
+ * Suedafrika. Genau darauf wird jetzt geprueft. Ein Modell, das die naechste
+ * Viertelstunde trifft und die naechsten drei Stunden verfehlt, ist fuer
+ * diese App nutzlos - und faellt jetzt auch durch.
  */
 export function evaluateModels(series = []) {
   const points = [...series].sort((a, b) => a[0] - b[0]);
   const results = new Map();
   for (const model of MODELS) results.set(model.key, { key: model.key, label: model.label, residuals: [] });
 
-  for (let i = 2; i < points.length; i++) {
+  // Nur die juengsten Pruefpunkte, und das ist der Unterschied zwischen einer
+  // Seite, die laedt, und einer, die haengt: der Aufwand hier waechst
+  // quadratisch mit der Reihenlaenge. Gemessen fuer 227 Reihen - 40 Punkte
+  // 0,5 s, 250 Punkte 9 s, 1000 Punkte 140 s. Die Historie selbst darf
+  // trotzdem lang sein, weil Zyklen- und Timer-Erkennung linear laufen; nur
+  // der Modellwettbewerb braucht eine Grenze.
+  //
+  // Dass die Grenze die *juengsten* Punkte nimmt, passt zur Gewichtung im Rest
+  // der Datei: wie ein Modell sich vor drei Tagen geschlagen hat, entscheidet
+  // nicht, welches heute laufen soll.
+  const ersterPruefpunkt = Math.max(2, points.length - BACKTEST_ORIGINS);
+
+  for (let i = ersterPruefpunkt; i < points.length; i++) {
     const known = points.slice(0, i);
     const asOf = known[known.length - 1][0];
 
-    // Bis zu drei Schritte in die Zukunft, solange die Reihe reicht.
-    for (let step = 0; step < 3 && i + step < points.length; step++) {
-      const [ts, actual] = points[i + step];
+    for (const frist of HORIZONS) {
+      // Die Messung, die der Frist am naechsten liegt. Gemessen wird nur, wenn
+      // sie nahe genug dran ist - sonst wuerde ein Punkt 40 Minuten neben dem
+      // Ziel als Pruefung fuer eine Stunde durchgehen und das Ergebnis
+      // schoenrechnen.
+      const treffer = naechsterPunkt(points, i, asOf + frist * MINUTE, frist);
+      if (!treffer) continue;
+
+      const [ts, actual] = treffer;
       const ahead = (ts - asOf) / MINUTE;
       if (ahead <= 0) continue;
 
@@ -522,7 +640,9 @@ export function chanceAtLeast(series, units, minutesAhead, now = Date.now()) {
 
 /** Guete der Reihe unter dem gewaehlten Modell - fuer die Anzeige. */
 export function backtest(series = []) {
-  const points = [...series].sort((a, b) => a[0] - b[0]);
+  // Nur der juengere Abschnitt: die Bewertung der Modelle soll die Ansicht
+  // nicht ausbremsen, waehrend Timer und Zyklen die volle Reihe bekommen.
+  const points = [...series].sort((a, b) => a[0] - b[0]).slice(-BACKTEST_POINTS);
   if (points.length < 3) return { checks: 0, medianAbsError: null, worstAbsError: null, coverage: null, model: null };
 
   const results = scoreModels(evaluateModels(points), { fromEmpty: points[points.length - 1][1] === 0 });
@@ -540,7 +660,7 @@ export function backtest(series = []) {
  * Punkte fallen weg - so bleibt eine Reihe entstehen, egal aus welcher
  * Richtung sie gefuellt wurde.
  */
-export function mergeStock(local = {}, remote = {}, limit = MAX_SAMPLES) {
+export function mergeStock(local = {}, remote = {}, limit = MAX_HISTORY) {
   const out = {};
   for (const key of new Set([...Object.keys(local), ...Object.keys(remote)])) {
     const seen = new Map();
@@ -567,9 +687,22 @@ export function loadStock() {
   }
 }
 
-export function saveStock(store) {
+/**
+ * Legt die Sammlung im localStorage ab - gekuerzt - und gibt sie ungekuerzt
+ * zurueck.
+ *
+ * Diese Trennung ist der ganze Punkt. Vorher schrieb der Aufrufer das zurueck,
+ * was gespeichert wurde, und damit bestimmte die Groesse des Browserspeichers,
+ * wie viel die Schaetzung sehen darf. Das Kuerzen gehoert an die Stelle, an
+ * der wirklich Platz fehlt, und nirgendwo sonst.
+ */
+export function saveStock(store, limit = MAX_SAMPLES) {
   try {
-    localStorage.setItem(STOCK_KEY, JSON.stringify(store));
+    const gekuerzt = {};
+    for (const [key, series] of Object.entries(store)) {
+      if (Array.isArray(series) && series.length) gekuerzt[key] = series.slice(-limit);
+    }
+    localStorage.setItem(STOCK_KEY, JSON.stringify(gekuerzt));
   } catch {
     // Voller Speicher darf die Planung nicht verhindern.
   }

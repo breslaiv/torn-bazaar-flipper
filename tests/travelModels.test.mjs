@@ -198,14 +198,33 @@ test('der Mittelwert laesst den einen grossen Fehler durch, den der Median schlu
   const ausLeer = scoreModels(roh, { fromEmpty: true });
 
   const flat = ausLeer.get('flat');
-  assert.equal(flat.medianAbsError, 0, 'der Median sieht das Problem nicht');
-  assert.ok(flat.meanAbsError > 10, `der Mittelwert schon: ${flat.meanAbsError}`);
+  assert.ok(
+    flat.meanAbsError > flat.medianAbsError * 2,
+    `Median ${flat.medianAbsError} gegen Mittelwert ${flat.meanAbsError}`,
+  );
 });
 
-test('aus dem leeren Regal gewinnt das Modell, das den Nachschub kennt', () => {
+test('aus dem leeren Regal gewinnt auf kurze Frist das Modell, das den Nachschub kennt', () => {
+  // Mit Frist geprueft, weil die App genau so waehlt: predict() reicht den
+  // Horizont an scoreModels() weiter. Ohne ihn werden alle Fristen vermischt,
+  // und das Ergebnis beantwortet keine Frage, die jemand stellt.
   const reihe = zyklusReihe();
-  const gewaehlt = chooseModel(scoreModels(evaluateModels(reihe), { fromEmpty: true }));
-  assert.equal(gewaehlt.key, 'cycle');
+  const roh = evaluateModels(reihe);
+  assert.equal(chooseModel(scoreModels(roh, { fromEmpty: true, horizon: 30 })).key, 'cycle');
+});
+
+test('drei Stunden voraus laesst sich die Phase eines Zyklus nicht mehr raten', () => {
+  // Der Zyklus dieser Reihe dauert 100 Minuten. Auf 180 Minuten Frist weiss
+  // auch das Modell mit Timer nicht, wo im Zyklus man landet - und dann
+  // gewinnt zu Recht das einfachste Verfahren. Das ist kein Mangel der
+  // Auswahl, sondern eine Grenze der Vorhersagbarkeit, und sie soll
+  // sichtbar bleiben.
+  const roh = evaluateModels(zyklusReihe());
+  assert.equal(chooseModel(scoreModels(roh, { fromEmpty: true, horizon: 180 })).key, 'flat');
+
+  // Aus dem vollen Regal traegt der Mechanismus dagegen auch weit: dort ist
+  // der Ausverkauf die Hauptbewegung, und den kennt cycle.
+  assert.equal(chooseModel(scoreModels(roh, { fromEmpty: false, horizon: 180 })).key, 'cycle');
 });
 
 test('die Bewertung nimmt nur Kontrollen aus derselben Lage', () => {

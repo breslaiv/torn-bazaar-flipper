@@ -870,10 +870,85 @@ besser — und der Engpass wandert dorthin, wo er hingehört: nicht mehr zu
 unserem Takt, sondern zu der Frage, wie oft die YATA-Gemeinschaft überhaupt
 neue Vorräte einliefert. Genau das beantwortet `--stats` zum ersten Mal.
 
+**Und die Antwort ist inzwischen gemessen.** Über drei Stunden und elf Länder
+liegt der kleinste Abstand zwischen zwei YATA-Zeitstempeln bei exakt 60 s
+(1599 Lücken, Minimum 60, Median 69, p95 116) — YATA rechnet also einmal je
+Minute neu. Damit ist der Takt nach oben *und* nach unten festgelegt:
+häufiger als alle 30 s zu fragen bringt keinen einzigen Messpunkt mehr, und
+alle 60 s zu fragen wäre bereits zu langsam, weil eine Abfrage selbst 0,5 bis
+5,6 s dauert und der Sammler damit hinter der Quelle herliefe. Wer mehr Daten
+will, bekommt sie nicht über den Takt, sondern über Laufzeit.
+
 **Was die Seiten davon merken: nichts.** Der lokale Server liefert
 `data/travel-stock.json` unter derselben Adresse und in derselben Form aus,
 nur aus einer Datenbank statt aus einer Datei. Im Browser ist keine Zeile
 anders.
+
+### Speichergrenze und Rechengrenze sind nicht dasselbe
+
+Lange war beides eine Zahl: `MAX_SAMPLES = 40`. Das stammt aus der
+Pages-Fassung, wo der Browser selbst mitschreibt und der `localStorage` mit ein
+paar Megabyte auskommen muss. Sobald die Historie aber aus SQLite kommt, ist
+diese Grenze eine stille Fessel — sie ist eine feste **Anzahl** und wirft
+deshalb immer mehr weg, je länger gesammelt wird. Gemessen: von 5,8 Stunden
+vorhandener Historie sah die Schätzung 3,5.
+
+Getrennt sind es jetzt drei Zahlen, jede mit einem eigenen Grund:
+
+| | | |
+|---|---|---|
+| `MAX_SAMPLES` | 40 | was in den `localStorage` geschrieben wird — dort ist der Platz knapp |
+| `MAX_HISTORY` | 1000 | was im Arbeitsspeicher steht, also womit gerechnet wird |
+| `BACKTEST_POINTS` | 60 | was der Modellwettbewerb bewertet |
+
+Die dritte Zahl ist die unerwartete. Abverkauf, Zyklen und Timer laufen linear
+und dürfen alles sehen. `evaluateModels()` dagegen sagt von jedem Punkt aus
+voraus und wächst **quadratisch**: für 227 Reihen gemessen 0,5 s bei 40
+Punkten, 9 s bei 250, 140 s bei 1000. Ohne diese Grenze wäre „mehr Daten" eine
+Seite, die minutenlang steht.
+
+Was der Handel bringt, mit echten Daten über alle 227 Reihen: eine Ansicht
+kostet 479 statt 312 ms, erkennt dafür 369 statt 176 Nachfüll-Zyklen und
+liefert für 72 statt 44 Items einen Timer.
+
+Damit die längeren Reihen auch über Tailscale ankommen, packt der Server seine
+JSON-Antworten: gemessen 393 kB roh, 74 kB gepackt.
+
+### Geprüft wird auf Flugdauer, nicht auf den nächsten Messpunkt
+
+Der Modellwettbewerb hat lange die falsche Frage gestellt. `evaluateModels()`
+sagte die nächsten drei **Messungen** vorher — im Mittel 8 Minuten, längstens
+20. Auf dieser Frist ändert sich ein Regal in **86 %** der Fälle gar nicht.
+Also gewann „bleibt wie es ist" auf **81 %** der Reihen mit einem mittleren
+Fehler von **0,0**, und kein besseres Verfahren konnte sich zeigen: eine
+gesättigte Messlatte, auf der jeder Kandidat perfekt aussieht.
+
+Entschieden wird aber auf Flugdauer — 26 Minuten nach Mexiko, 297 nach
+Südafrika. Geprüft wird deshalb jetzt auf `HORIZONS = [30, 60, 120, 180]`
+Minuten, gegen die Messung, die der Frist am nächsten liegt (Toleranz 20 %,
+mindestens 5 Minuten). Fehlt sie, wird nicht geprüft — lieber keine Kontrolle
+als eine auf einer Frist, auf der niemand fliegt.
+
+Was dabei sichtbar wird, war vorher unsichtbar:
+
+| Frist | `flat` | `drift` | `daily` | `cycle` |
+|---|---|---|---|---|
+| 30 min | 4 | 4 | 4 | 131 |
+| 60 min | 7 | 6 | 6 | 131 |
+| 120 min | 9 | 6 | 6 | 131 |
+| 180 min | 10 | 7 | 7 | 122 |
+
+*(mittlerer absoluter Fehler, Median über 227 Reihen)*
+
+`flat` wird mit der Frist schlechter, `daily` und `drift` bleiben stabil — und
+`daily` steigt entsprechend von 6 auf 32 gewonnene Reihen. Genau diese
+Unterscheidung war auf 8 Minuten unmöglich.
+
+Zwei Dinge bleiben offen und sind bewusst nicht behoben: `cycle` hat mit
+Abstand den größten mittleren Fehler, obwohl es den Mechanismus des Spiels
+abbildet und der Standard ist — dort steckt ein teurer Fehlschlag, der eigene
+Untersuchung verdient. Und ein absoluter Stückfehler vergleicht Items mit drei
+Stück gegen Items mit achttausend; ein maßstabsfreies Maß wäre ehrlicher.
 
 ```bash
 git clone … && cd torn-bazaar-flipper
@@ -890,7 +965,7 @@ Zwei Dienste:
 
 | | |
 |---|---|
-| `torn-collector` | misst alle 15 s, schreibt nach `data/local/stock.db` |
+| `torn-collector` | misst alle 30 s, schreibt nach `data/local/stock.db` |
 | `torn-web` | liefert die Seiten aus, hört **nur auf 127.0.0.1** |
 
 Dass der Webserver nur lokal hört, ist Absicht. Zugriff vom Telefon läuft über

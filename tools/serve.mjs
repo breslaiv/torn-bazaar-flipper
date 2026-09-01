@@ -18,6 +18,7 @@
 import { createServer as createHttpServer } from 'node:http';
 import { createReadStream, statSync } from 'node:fs';
 import { resolve, sep, extname, join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -68,14 +69,38 @@ export function cacheHeaderFor(url) {
   return /[?&]v=/.test(url) ? 'public, max-age=31536000, immutable' : 'no-cache';
 }
 
-const json = (res, status, body) => {
-  const text = JSON.stringify(body);
-  res.writeHead(status, {
+// Unterhalb eines Netzpakets bringt Packen nichts und kostet nur Rechenzeit.
+const GZIP_AB = 1400;
+
+/**
+ * Antwortet mit JSON, gepackt wenn der Client es kann.
+ *
+ * Die Messreihen sind lange Ziffernfolgen und lassen sich dadurch etwa auf ein
+ * Fuenftel druecken (gemessen: 387 kB roh, 70 kB gepackt). Das ist der Grund,
+ * warum der Server ueberhaupt mehr Historie ausliefern darf, ohne dass der
+ * Aufruf vom Telefon ueber Tailscale zaeh wird.
+ *
+ * gzipSync blockiert kurz, und das ist hier richtig so: ein einzelner Nutzer
+ * auf der eigenen Maschine, ein paar Millisekunden je Abruf. Ein Stream waere
+ * mehr Bewegteile fuer nichts.
+ */
+const json = (res, status, body, req = null) => {
+  const roh = Buffer.from(JSON.stringify(body));
+  const kopf = {
     'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(text),
     'Cache-Control': 'no-cache',
-  });
-  res.end(text);
+    // Ohne Vary koennte ein Zwischenspeicher die gepackte Fassung an einen
+    // Client geben, der sie nicht auspacken kann.
+    Vary: 'Accept-Encoding',
+  };
+
+  const kannGzip = /\bgzip\b/.test(req?.headers?.['accept-encoding'] || '');
+  const nutzlast = kannGzip && roh.length >= GZIP_AB ? gzipSync(roh) : roh;
+  if (nutzlast !== roh) kopf['Content-Encoding'] = 'gzip';
+
+  kopf['Content-Length'] = nutzlast.length;
+  res.writeHead(status, kopf);
+  res.end(nutzlast);
 };
 
 /**
@@ -87,7 +112,7 @@ const json = (res, status, body) => {
 export function createServer({ root = '.', stock = null, health = null } = {}) {
   return createHttpServer((req, res) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
-      return json(res, 405, { error: 'nur GET' });
+      return json(res, 405, { error: 'nur GET' }, req);
     }
 
     const path = (req.url || '/').split('?')[0];
@@ -96,22 +121,22 @@ export function createServer({ root = '.', stock = null, health = null } = {}) {
     // Seite auf GitHub Pages abfragt.
     if (stock && (path === '/data/travel-stock.json' || path === '/data/travel-stock.json/')) {
       try {
-        return json(res, 200, stock());
+        return json(res, 200, stock(), req);
       } catch (err) {
-        return json(res, 500, { error: err.message });
+        return json(res, 500, { error: err.message }, req);
       }
     }
 
     if (health && path === '/health') {
       try {
-        return json(res, 200, health());
+        return json(res, 200, health(), req);
       } catch (err) {
-        return json(res, 500, { error: err.message });
+        return json(res, 500, { error: err.message }, req);
       }
     }
 
     const file = resolveSafe(root, path);
-    if (!file) return json(res, 400, { error: 'ungültiger Pfad' });
+    if (!file) return json(res, 400, { error: 'ungültiger Pfad' }, req);
 
     let info;
     try {
@@ -122,7 +147,7 @@ export function createServer({ root = '.', stock = null, health = null } = {}) {
         return send(res, index, info, req.url);
       }
     } catch {
-      return json(res, 404, { error: 'nicht gefunden' });
+      return json(res, 404, { error: 'nicht gefunden' }, req);
     }
     return send(res, file, info, req.url);
   });
@@ -151,7 +176,16 @@ export function parseArgs(argv = []) {
     host: value('--host', '127.0.0.1'),
     db: value('--db', 'data/local/stock.db'),
     root: value('--root', '.'),
-    limit: Number(value('--limit', 500)) || 500,
+    // Punkte je Reihe in der Auslieferung. Seit die Fassung nur noch lokal
+    // laeuft, ist die Datenbank die Quelle und nicht mehr der knappe
+    // localStorage des Browsers - mehr Historie heisst mehr Zyklen je Item und
+    // damit bessere Timer. Bei 227 Reihen sind das gepackt rund 400 kB.
+    //
+    // Ein Zeitfenster ("die letzten drei Tage") waere die ehrlichere Form als
+    // eine feste Anzahl, weil eine Anzahl bei dichterer Messung immer weniger
+    // Zeitraum abdeckt. Solange nur alle paar Minuten ein Punkt entsteht, tut
+    // die Anzahl es aber.
+    limit: Number(value('--limit', 1000)) || 1000,
   };
 }
 

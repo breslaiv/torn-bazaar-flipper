@@ -31,13 +31,17 @@ function fakeClock(start = T0) {
   };
 }
 
-test('Vorgaben: fuenfzehn Sekunden, und nie schneller als fuenf', () => {
-  assert.equal(parseArgs([]).intervalSeconds, 15);
-  assert.equal(parseArgs(['--interval', '30']).intervalSeconds, 30);
+test('Vorgaben: dreissig Sekunden, und nie schneller als fuenf', () => {
+  // Dreissig ist gemessen: der kleinste Abstand zwischen zwei YATA-
+  // Zeitstempeln ist exakt 60 s, also hat dieser Takt die doppelte Marge.
+  // Ein Takt von 60 s waere zu langsam - eine Abfrage dauert selbst mehrere
+  // Sekunden, der Sammler liefe real hinter der Quelle her.
+  assert.equal(parseArgs([]).intervalSeconds, 30);
+  assert.equal(parseArgs(['--interval', '15']).intervalSeconds, 15);
   // Eine fremde Quelle im Sekundentakt anzuklopfen bringt nichts: YATA
   // liefert erst neue Zeitstempel, wenn jemand importiert hat.
   assert.equal(parseArgs(['--interval', '1']).intervalSeconds, 5);
-  assert.equal(parseArgs(['--interval', 'quatsch']).intervalSeconds, 15);
+  assert.equal(parseArgs(['--interval', 'quatsch']).intervalSeconds, 30);
 });
 
 test('gemessene Punkte landen in der Datenbank', async () => {
@@ -123,6 +127,45 @@ test('nach einem Neustart gilt der letzte Stand, nicht ein leeres Blatt', async 
   });
 
   assert.equal(storeStats(db).points, before, 'nichts Neues erfunden');
+  db.close();
+});
+
+test('Abfragen und Fehler werden gebucht, nicht nur die Aenderungen', async () => {
+  // runs.polls stand im Dauerbetrieb dauerhaft auf 0: watch() zaehlt Abfragen
+  // zwar mit, reicht die Zahl aber nicht an save() weiter, und save() laeuft
+  // nur bei einer Aenderung. Damit war die einzige Frage, fuer die es diese
+  // Tabelle gibt, aus der Datenbank nicht mehr zu beantworten - wie viele
+  // Abfragen brachten ueberhaupt etwas Neues?
+  const db = openStore(':memory:');
+  const clock = fakeClock();
+  let call = 0;
+
+  await run({
+    db,
+    fetchJson: async () => {
+      call += 1;
+      if (call === 2) throw new Error('yata.yt HTTP 502');
+      // Nur jede dritte Abfrage traegt einen neuen Zeitstempel - so wie im
+      // Betrieb, wo YATA seine Antwort bis zum naechsten Import festhaelt.
+      const schritt = Math.floor(call / 3);
+      return payload(T0 + schritt * 60000, [[8, 5 + schritt]]);
+    },
+    intervalMs: 60000,
+    minutes: 10,
+    sleep: clock.sleep,
+    now: clock.now,
+  });
+
+  const bilanz = db
+    .prepare('SELECT SUM(polls) AS polls, SUM(changes) AS changes, SUM(errors) AS errors FROM runs')
+    .get();
+
+  assert.ok(bilanz.polls > 0, 'ohne gebuchte Abfragen ist die Tabelle wertlos');
+  assert.ok(
+    bilanz.polls > bilanz.changes,
+    `Abfragen (${bilanz.polls}) muessen ueber den Aenderungen (${bilanz.changes}) liegen`,
+  );
+  assert.ok(bilanz.errors >= 1, 'der Ausfall der Quelle muss gebucht sein');
   db.close();
 });
 

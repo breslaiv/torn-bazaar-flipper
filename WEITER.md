@@ -39,7 +39,7 @@ node tools/collect-local.mjs --stats
 
 Das ist die wichtigste offene Frage im ganzen Projekt. Das erklärte Ziel ist
 eine **90-Prozent-Prognose für den nächsten Nachschub**. Ob das erreichbar ist,
-hängt nicht an unserem Messtakt — wir fragen alle 15 Sekunden — sondern daran,
+hängt nicht an unserem Messtakt — wir fragen alle 30 Sekunden — sondern daran,
 wie oft die YATA-Gemeinschaft überhaupt neue Vorräte einliefert. Liefert YATA
 nur alle 20 Minuten einen neuen Zeitstempel, ist der Timer nie enger als
 20 Minuten zu bestimmen, egal wie oft wir anklopfen.

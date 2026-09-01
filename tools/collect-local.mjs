@@ -15,7 +15,7 @@
 // YATA-Gemeinschaft ueberhaupt neue Vorraete einliefert - und genau das laesst
 // sich an --stats endlich ablesen.
 //
-// Aufruf:  node tools/collect-local.mjs [--interval 15] [--db data/local/stock.db]
+// Aufruf:  node tools/collect-local.mjs [--interval 30] [--db data/local/stock.db]
 
 import { collectOnce, watch } from './collect-travel.mjs';
 import { openStore, saveSeries, readSeries, recordRun, storeStats } from './store.mjs';
@@ -27,10 +27,19 @@ export function parseArgs(argv = []) {
     return i >= 0 && argv[i + 1] !== undefined ? argv[i + 1] : fallback;
   };
   return {
-    // Fuenf Sekunden sind die Untergrenze: darunter belaestigt man eine fremde
-    // Quelle fuer nichts. YATA liefert ohnehin nur neue Zeitstempel, wenn
-    // jemand importiert hat.
-    intervalSeconds: Math.max(5, Number(value('--interval', 15)) || 15),
+    // Dreissig Sekunden, und das ist gemessen, nicht geraten: der kleinste
+    // Abstand zwischen zwei YATA-Zeitstempeln ist exakt 60 s (1599 Luecken
+    // ueber elf Laender, Minimum 60, Median 69). Ein Takt von 30 s hat damit
+    // die doppelte Sicherheitsmarge und verliert nichts. Haeufiger zu fragen
+    // bringt keinen einzigen Messpunkt mehr - die Quelle rechnet nur einmal
+    // je Minute neu.
+    //
+    // Nach oben ist 60 s die Grenze, die man nicht anfassen darf: eine Abfrage
+    // dauert selbst 0,5 bis 5,6 s, ein auf 60 s gestellter Sammler laeuft also
+    // real langsamer als die Quelle und verliert regelmaessig eine ganze
+    // Aktualisierung. Fuenf Sekunden bleiben die Untergrenze - darunter
+    // belaestigt man eine fremde Quelle fuer nichts.
+    intervalSeconds: Math.max(5, Number(value('--interval', 30)) || 30),
     db: value('--db', 'data/local/stock.db'),
     stats: argv.includes('--stats'),
     once: argv.includes('--once'),
@@ -52,13 +61,44 @@ export async function run({
   // unveraenderte Zahl als neue Messung.
   let state = { series: readSeries(db, { limit: 120 }) };
 
+  // watch() zaehlt Abfragen und Fehler mit, reicht diese Zahlen aber nicht an
+  // save() weiter - und save() laeuft ohnehin nur bei einer Aenderung. Ohne
+  // die Huelle hier stuende in runs.polls dauerhaft 0 und in runs.errors
+  // ebenso, und damit waere die eine Frage, fuer die es die Tabelle gibt,
+  // aus der Datenbank nicht mehr zu beantworten: wie viele Abfragen brachten
+  // ueberhaupt etwas Neues? collectOnce() holt genau einmal je Abfrage,
+  // deshalb zaehlt ein Aufruf dieser Huelle exakt eine Abfrage.
+  let polls = 0;
+  let errors = 0;
+  let gebucht = { polls: 0, errors: 0 };
+
+  const zaehlend = async (...args) => {
+    polls += 1;
+    try {
+      return await fetchJson(...args);
+    } catch (err) {
+      errors += 1;
+      throw err;
+    }
+  };
+
   const result = await watch({
     state,
-    fetchJson,
+    fetchJson: zaehlend,
     save: (next, meta) => {
       state = next;
       const added = saveSeries(db, next.series);
-      recordRun(db, { ts: now(), source: YATA_URL, changes: 1 });
+      // Gebucht wird der Zuwachs seit dem letzten Eintrag, nicht der
+      // Gesamtstand: nur so bleibt SUM(polls) ueber die Tabelle die Zahl
+      // aller Abfragen, auch ueber Neustarts hinweg.
+      recordRun(db, {
+        ts: now(),
+        source: YATA_URL,
+        polls: polls - gebucht.polls,
+        changes: 1,
+        errors: errors - gebucht.errors,
+      });
+      gebucht = { polls, errors };
       if (added) log(`  ${new Date(now()).toISOString().slice(11, 19)}  ${added} neue Messpunkte`);
     },
     minutes,

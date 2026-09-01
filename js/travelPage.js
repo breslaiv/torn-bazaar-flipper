@@ -1,24 +1,24 @@
 // Verdrahtung der Flugseite.
 
-import { loadSettings, saveSettings } from './storage.js?v=15';
-import { fetchMarketplace } from './weav3r.js?v=15';
+import { loadSettings, saveSettings } from './storage.js?v=17';
+import { fetchMarketplace } from './weav3r.js?v=17';
 import {
   fetchTravelStocks, parseTravelExport, travelUrl, YataError, YATA_URL,
-} from './yata.js?v=15';
+} from './yata.js?v=17';
 import {
   COUNTRIES, AIRSTRIPS, countryName, oneWayMinutes, planTrips, planCountry,
-} from './travel.js?v=15';
+} from './travel.js?v=17';
 import {
   loadStock, saveStock, recordSnapshot, seriesFor, predict, estimate,
   chanceAtLeast, backtest, restockInfo, mergeStock,
-} from './travelStock.js?v=15';
-import { inStockWindows, windowRate, recentRestocks, hourProfile } from './restock.js?v=15';
-import { capacityFromPerks, flyMethodKey, BASE_CAPACITY } from './capacity.js?v=15';
-import { fetchTravel, fetchPerks, TornApiError } from './torn.js?v=15';
-import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=15';
-import { renderTable } from './table.js?v=15';
-import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=15';
-import { restorePanels } from './panels.js?v=15';
+} from './travelStock.js?v=17';
+import { inStockWindows, windowRate, recentRestocks, hourProfile } from './restock.js?v=17';
+import { capacityFromPerks, flyMethodKey, BASE_CAPACITY } from './capacity.js?v=17';
+import { fetchTravel, fetchPerks, TornApiError } from './torn.js?v=17';
+import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=17';
+import { renderTable } from './table.js?v=17';
+import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=17';
+import { restorePanels } from './panels.js?v=17';
 
 let prices = new Map();
 let stocks = new Map();      // code -> [{itemId, itemName, cost, quantity}]
