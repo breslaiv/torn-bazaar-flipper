@@ -95,3 +95,132 @@ test('kein Workflow trägt ein Geheimnis in die Sammlung', () => {
   const yml = readFileSync('./.github/workflows/collect.yml', 'utf8');
   assert.doesNotMatch(yml, /secrets\./, 'der Sammler braucht keinen Key — und soll keinen bekommen');
 });
+
+// ---------- Messen im Minutentakt ----------
+
+const { parseArgs, collectOnce, watch } = await import('../tools/collect-travel.mjs');
+
+const payload = (quantity, stamp) => ({
+  timestamp: Math.floor(stamp / 1000),
+  stocks: { mex: { update: Math.floor(stamp / 1000), stocks: [{ id: 260, name: 'Dahlia', quantity, cost: 400 }] } },
+});
+
+test('ohne --watch bleibt es bei einer Messung', () => {
+  const a = parseArgs([]);
+  assert.equal(a.watchMinutes, 0);
+  assert.equal(a.intervalSeconds, 60);
+  assert.equal(a.out, 'data/travel-stock.json');
+});
+
+test('der Takt lässt sich einstellen, aber nicht beliebig eng', () => {
+  // Sekundentakt wäre gegenüber einer fremden Quelle unhöflich und brächte
+  // nichts: YATA liefert bis zum nächsten Import dieselbe Antwort.
+  assert.equal(parseArgs(['--watch', '55', '--interval', '60']).watchMinutes, 55);
+  assert.equal(parseArgs(['--interval', '1']).intervalSeconds, 10, 'nach unten begrenzt');
+  assert.equal(parseArgs(['--watch', '-5']).watchMinutes, 0);
+});
+
+test('eine Messung trägt nur Neues ein', async () => {
+  const stamp = T0;
+  const first = await collectOnce({ series: {} }, { fetchJson: async () => payload(200, stamp) });
+  assert.equal(first.changed, true);
+  assert.equal(first.countries, 1);
+
+  // Dieselbe Antwort noch einmal: derselbe Zeitstempel, also keine neue Messung.
+  const again = await collectOnce({ series: first.series }, { fetchJson: async () => payload(200, stamp) });
+  assert.equal(again.changed, false);
+});
+
+test('der lange Lauf misst dicht und sichert jede Änderung sofort', async () => {
+  // Der Kern der Umstellung: 55 Messungen in einem Lauf statt einer.
+  let clock = T0;
+  let quantity = 300;
+  const gespeichert = [];
+
+  const result = await watch({
+    state: { series: {} },
+    // Der Vorrat fällt jede Minute - jede Messung bringt also etwas Neues.
+    fetchJson: async () => { quantity -= 5; return payload(quantity, clock); },
+    save: (next) => gespeichert.push(Object.values(next.series)[0].length),
+    minutes: 10,
+    intervalMs: 60000,
+    sleep: async (ms) => { clock += ms; },
+    now: () => clock,
+  });
+
+  // Elf, nicht zehn: gemessen wird sofort beim Start und dann jede Minute.
+  assert.equal(result.polls, 11, 'zehn Minuten, Minutentakt, plus die Messung bei Beginn');
+  assert.equal(result.errors, 0);
+  assert.ok(gespeichert.length >= 9, 'nach jeder Änderung wird gesichert, nicht erst am Ende');
+  assert.equal(gespeichert[gespeichert.length - 1], result.polls, 'jede Messung ist ein Punkt');
+});
+
+test('eine unveränderte Antwort erzeugt keinen Messpunkt', async () => {
+  let clock = T0;
+  const result = await watch({
+    state: { series: {} },
+    fetchJson: async () => payload(200, T0),   // immer derselbe Zeitstempel
+    save: () => {},
+    minutes: 10,
+    intervalMs: 60000,
+    sleep: async (ms) => { clock += ms; },
+    now: () => clock,
+  });
+  assert.equal(result.polls, 11);
+  assert.equal(result.changes, 1, 'nur die allererste Antwort war neu');
+});
+
+test('ein Ausfall der Quelle beendet den Lauf nicht, bremst ihn aber', async () => {
+  // Ohne Bremse klopfte der Sammler bei einem Ausfall eine Stunde lang im
+  // Minutentakt an.
+  let clock = T0;
+  const abstaende = [];
+  let vorher = clock;
+
+  const result = await watch({
+    state: { series: {} },
+    fetchJson: async () => { throw new Error('yata.yt HTTP 503'); },
+    save: () => {},
+    minutes: 30,
+    intervalMs: 60000,
+    sleep: async (ms) => { abstaende.push(ms); clock += ms; vorher = clock; },
+    now: () => clock,
+  });
+
+  assert.ok(result.errors > 0);
+  assert.ok(result.polls < 30, `bei Ausfall wird seltener gefragt: ${result.polls} Versuche`);
+  assert.ok(abstaende[1] > abstaende[0], 'der Abstand wächst');
+  assert.ok(Math.max(...abstaende) <= 10 * 60000, 'aber nicht ins Unendliche');
+});
+
+test('nach einem Fehler geht es im normalen Takt weiter', async () => {
+  let clock = T0;
+  let calls = 0;
+  const abstaende = [];
+  let quantity = 500;
+
+  await watch({
+    state: { series: {} },
+    fetchJson: async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('einmalig kaputt');
+      quantity -= 5;
+      return payload(quantity, clock);
+    },
+    save: () => {},
+    minutes: 8,
+    intervalMs: 60000,
+    sleep: async (ms) => { abstaende.push(ms); clock += ms; },
+    now: () => clock,
+  });
+
+  assert.equal(abstaende[0], 120000, 'nach dem Fehler doppelter Abstand');
+  assert.equal(abstaende[1], 60000, 'danach wieder normal');
+});
+
+test('der Workflow misst lange und committet einmal', () => {
+  const yml = readFileSync('./.github/workflows/collect.yml', 'utf8');
+  assert.match(yml, /cron: '2 \* \* \* \*'/, 'stündlich statt alle zehn Minuten');
+  assert.match(yml, /--watch/, 'ohne watch wäre es wieder eine Einzelmessung');
+  assert.match(yml, /timeout-minutes: 70/, 'ein 55-Minuten-Lauf braucht Luft');
+});

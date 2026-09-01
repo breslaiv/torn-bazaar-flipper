@@ -675,9 +675,24 @@ Landung` stand gar nicht in der Tabelle.)
 
 Eine Messreihe entsteht nur, wenn jemand nachsieht. Solange das nur der Browser tut, gibt es
 Daten genau dann, wenn die Seite offen ist — also nicht nachts, und selten in dem Fenster, in
-dem ein Timer abläuft. Deshalb sammelt ein **GitHub-Actions-Workflow** (`collect.yml`) alle zehn
-Minuten selbst: er liest YATA, trägt die Messung ein und committet `data/travel-stock.json`.
-Die Seite liest die Datei beim Start und führt sie mit den eigenen Beobachtungen zusammen.
+dem ein Timer abläuft. Deshalb sammelt ein **GitHub-Actions-Workflow** (`collect.yml`) selbst:
+er liest YATA, trägt die Messung ein und committet `data/travel-stock.json`. Die Seite liest die
+Datei beim Start und führt sie mit den eigenen Beobachtungen zusammen.
+
+**Dichte schlägt Häufigkeit.** Ein Zeitplan alle zehn Minuten trifft den Moment eines
+Nachschubs nur auf zehn Minuten genau — und genau diese Unsicherheit steckt danach im Timer.
+Deshalb läuft **ein Lauf pro Stunde, der darin im Minutentakt misst**: sechzigfach genauere
+Grenzen bei *weniger* Commits als vorher, weil einmal am Ende committet wird statt sechsmal.
+Aus `±5 min` Ungenauigkeit je Zyklus wird `±30 s`.
+
+Der Preis dafür ist Laufzeit: der Runner ist knapp 55 Minuten pro Stunde belegt. Für ein
+öffentliches Repository ist das kostenlos, aber es ist eine bewusste Entscheidung und keine
+Nebenwirkung.
+
+Zwei Vorkehrungen im Lauf: Nach **jeder** Änderung wird die Datei geschrieben, damit ein
+abgebrochener Lauf nicht die ganze Stunde verliert. Und ein Ausfall der Quelle beendet ihn
+nicht, sondern verdoppelt den Abstand bis maximal zehn Minuten — ohne diese Bremse klopfte der
+Sammler bei einer Störung eine Stunde lang im Minutentakt an.
 
 Drei Eigenschaften, die kein Zufall sind:
 
@@ -853,7 +868,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-365 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
+373 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
 Parallelität und Abbruch, Zeitstempel-Deutung, Scan-Ablauf, Markup, Sortierung,
 Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status, Bestandsbewertung, Flugplanung, Modellwahl, Vorratsvorhersage und Persistenz sowie die Key-, CSP-,
 Workflow- und Mobile-Prüfungen aus den Abschnitten oben.

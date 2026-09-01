@@ -11,11 +11,19 @@ name: Vorräte sammeln
 
 on:
   schedule:
-    # Alle zehn Minuten. GitHub haelt das nicht auf die Minute genau ein und
-    # laesst unter Last auch mal einen Lauf aus - fuer die Schaetzung ist das
-    # unerheblich, weil sie mit unregelmaessigen Abstaenden rechnet.
-    - cron: '*/10 * * * *'
+    # Einmal pro Stunde - und darin im Minutentakt. Ein Zeitplan alle zehn
+    # Minuten traefe den Moment eines Nachschubs nur auf zehn Minuten genau,
+    # und genau diese Unsicherheit steckt danach im Timer. Ein langer Lauf
+    # misst sechzigmal so dicht und committet trotzdem nur einmal.
+    - cron: '2 * * * *'
   workflow_dispatch:
+    inputs:
+      minutes:
+        description: 'Wie lange messen (Minuten)'
+        default: '55'
+      interval:
+        description: 'Abstand zwischen Messungen (Sekunden)'
+        default: '60'
 
 permissions:
   contents: write
@@ -28,6 +36,9 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
+    # Der Lauf misst knapp eine Stunde; das Zeitlimit liegt darueber, damit
+    # ein haengender Abruf nicht den ganzen Lauf verwirft.
+    timeout-minutes: 70
     steps:
       - uses: actions/checkout@v4
 
@@ -35,8 +46,12 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Vorräte lesen und eintragen
-        run: node tools/collect-travel.mjs --out data/travel-stock.json
+      - name: Vorräte im Minutentakt messen
+        run: |
+          node tools/collect-travel.mjs \
+            --out data/travel-stock.json \
+            --watch "${{ github.event.inputs.minutes || '55' }}" \
+            --interval "${{ github.event.inputs.interval || '60' }}"
 
       - name: Änderung festhalten
         run: |
