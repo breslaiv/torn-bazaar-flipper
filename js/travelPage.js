@@ -1,20 +1,23 @@
 // Verdrahtung der Flugseite.
 
-import { loadSettings, saveSettings } from './storage.js?v=12';
-import { fetchMarketplace } from './weav3r.js?v=12';
+import { loadSettings, saveSettings } from './storage.js?v=13';
+import { fetchMarketplace } from './weav3r.js?v=13';
 import {
   fetchTravelStocks, parseTravelExport, travelUrl, YataError, YATA_URL,
-} from './yata.js?v=12';
+} from './yata.js?v=13';
 import {
   COUNTRIES, AIRSTRIPS, countryName, oneWayMinutes, planTrips, planCountry,
-} from './travel.js?v=12';
+} from './travel.js?v=13';
 import {
   loadStock, saveStock, recordSnapshot, seriesFor, predict, estimate,
   chanceAtLeast, backtest, restockInfo, mergeStock,
-} from './travelStock.js?v=12';
-import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=12';
-import { renderTable } from './table.js?v=12';
-import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=12';
+} from './travelStock.js?v=13';
+import { inStockWindows, windowRate, recentRestocks, hourProfile } from './restock.js?v=13';
+import { capacityFromPerks, flyMethodKey, BASE_CAPACITY } from './capacity.js?v=13';
+import { fetchTravel, fetchPerks, TornApiError } from './torn.js?v=13';
+import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=13';
+import { renderTable } from './table.js?v=13';
+import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=13';
 
 let prices = new Map();
 let stocks = new Map();      // code -> [{itemId, itemName, cost, quantity}]
@@ -314,6 +317,8 @@ function render() {
 
   renderDetail();
   renderStats();
+  fillItemSelect();
+  if (document.getElementById('itemPanel').open) renderItemPanel();
 }
 
 function renderDetail() {
@@ -358,6 +363,191 @@ function renderStats() {
         ? ` Bisher ${checks} Kontrollen, im Schnitt ${Math.round(fehler)} Stück daneben.`
         : ` Ab ${'vier'} Kontrollen je Reihe darf ein Modell den Standard ablösen.`)
     : 'Jedes Laden der Vorräte und jede Eingabe von Hand legt hier eine Messung ab.';
+}
+
+// ---------- Aus Torn übernehmen ----------
+
+/**
+ * Holt Flugart und Kapazitaet aus Torn, statt sie einstellen zu lassen.
+ *
+ * Beides braucht nur einen Minimal-Key. Angezeigt wird, was erkannt wurde -
+ * eine Kapazitaet, die man nicht nachvollziehen kann, waere schlimmer als
+ * eine, die man selbst eintraegt.
+ */
+async function takeFromTorn() {
+  const btn = document.getElementById('fromTornBtn');
+  const msg = document.getElementById('tornStateMsg');
+  const s = settings();
+
+  if (!s.tornKey) {
+    msg.textContent = 'Kein Torn-Key hinterlegt — im Scanner unter Einstellungen eintragen. '
+      + 'Für diese Abfrage genügt ein Minimal-Key.';
+    return;
+  }
+
+  btn.disabled = true;
+  msg.textContent = 'Frage Torn…';
+  try {
+    const [travel, perks] = await Promise.all([fetchTravel(s.tornKey), fetchPerks(s.tornKey)]);
+    const method = flyMethodKey(travel?.method);
+    const cap = capacityFromPerks(perks);
+
+    const next = { ...settings(), travelCapacity: cap.total };
+    if (method) next.travelAirstrip = method;
+    saveSettings(next);
+
+    document.getElementById('travelCapacity').value = String(cap.total);
+    if (method) document.getElementById('travelAirstrip').value = method;
+    renderTimeGrid();
+    render();
+
+    const teile = [
+      `Kapazität ${cap.total} (${BASE_CAPACITY} Grundlage${cap.bonus ? ` + ${cap.bonus} aus Perks` : ''})`,
+    ];
+    teile.push(method
+      ? `Flugart ${travel.method}`
+      : `Flugart unbekannt (${travel?.method ?? 'noch nie geflogen'}) — Auswahl bleibt`);
+    if (cap.matched.length) {
+      teile.push(`erkannt: ${cap.matched.map((m) => `${m.text} [${m.source}]`).join('; ')}`);
+    } else {
+      teile.push('keine Reise-Perks erkannt — falls du welche hast, sag mir den Wortlaut');
+    }
+    msg.textContent = teile.join(' · ');
+  } catch (err) {
+    msg.textContent = err instanceof TornApiError
+      ? `Torn-Fehler ${err.code}: ${err.message}`
+      : String(err.message || err);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------- Einzelnes Item ----------
+
+const RESTOCK_COLUMNS = [
+  { key: 'at', label: 'Nachschub', align: 'left', cell: (r) => ({ text: `${fmtClock(r.at)} · ${relative(r.at)}` }) },
+  { key: 'outage', label: 'Leer', cell: (r) => ({ text: fmtMinutes(r.outageMinutes) }) },
+  { key: 'amount', label: 'Menge', cell: (r) => ({ text: Number.isFinite(r.amount) ? fmtUnits.format(r.amount) : '—' }) },
+  {
+    key: 'sicher',
+    label: 'Genauigkeit',
+    // Die Luecke zwischen letzter Null und erster Messung mit Ware: so genau
+    // ist der Zeitpunkt bekannt, mehr gibt die Messdichte nicht her.
+    cell: (r) => ({ text: `±${Math.round(r.uncertaintyMinutes / 2)} min` }),
+  },
+];
+
+const HOUR_COLUMNS = [
+  { key: 'hour', label: 'Stunde', align: 'left', cell: (r) => ({ text: `${String(r.hour).padStart(2, '0')}:00` }) },
+  { key: 'rate', label: 'Abverkauf', cell: (r) => ({ text: `${r.rate.toFixed(1)}/min` }) },
+  { key: 'samples', label: 'Messungen', cell: (r) => ({ text: fmtUnits.format(r.samples) }) },
+];
+
+function currentItemKey() {
+  return document.getElementById('itemSelect').value || '';
+}
+
+function fillItemSelect() {
+  const select = document.getElementById('itemSelect');
+  const before = select.value;
+  const options = Object.keys(observations)
+    .map((key) => {
+      const [code, id] = key.split(':');
+      const itemId = Number(id);
+      const name = (stocks.get(code) || []).find((i) => i.itemId === itemId)?.itemName
+        || prices.get(itemId)?.itemName
+        || `Item ${itemId}`;
+      return { key, label: `${countryName(code)} · ${name}`, count: (observations[key] || []).length };
+    })
+    .sort((a, b) => b.count - a.count);
+
+  select.innerHTML = options
+    .map((o) => `<option value="${escapeHtml(o.key)}">${escapeHtml(o.label)} (${o.count})</option>`)
+    .join('');
+  if (before && options.some((o) => o.key === before)) select.value = before;
+}
+
+/**
+ * Zeichnet den Vorratsverlauf. Leere Strecken werden schattiert - dort laeuft
+ * der Timer, und genau die Luecken sind die interessanten Stellen.
+ */
+function drawChart(series) {
+  const canvas = document.getElementById('itemChart');
+  const ratio = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth || 320;
+  const height = 140;
+  canvas.width = width * ratio;
+  canvas.height = height * ratio;
+
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  const points = [...series].sort((a, b) => a[0] - b[0]);
+  const style = getComputedStyle(document.documentElement);
+  const line = style.getPropertyValue('--accent').trim() || '#4da3ff';
+  const muted = style.getPropertyValue('--muted').trim() || '#949cab';
+
+  if (points.length < 2) {
+    ctx.fillStyle = muted;
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillText('Noch zu wenige Messungen für einen Verlauf.', 10, height / 2);
+    return;
+  }
+
+  const pad = { left: 6, right: 6, top: 10, bottom: 16 };
+  const t0 = points[0][0];
+  const t1 = points[points.length - 1][0];
+  const maxQ = Math.max(...points.map((p) => p[1]), 1);
+  const x = (ts) => pad.left + ((ts - t0) / Math.max(1, t1 - t0)) * (width - pad.left - pad.right);
+  const y = (q) => height - pad.bottom - (q / maxQ) * (height - pad.top - pad.bottom);
+
+  // Leerphasen zuerst, damit die Linie darueber liegt.
+  ctx.fillStyle = 'rgba(148, 156, 171, .22)';
+  for (let i = 1; i < points.length; i++) {
+    if (points[i - 1][1] === 0 || points[i][1] === 0) {
+      const from = x(points[i - 1][0]);
+      ctx.fillRect(from, pad.top, Math.max(1, x(points[i][0]) - from), height - pad.top - pad.bottom);
+    }
+  }
+
+  ctx.strokeStyle = line;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  points.forEach((p, i) => (i ? ctx.lineTo(x(p[0]), y(p[1])) : ctx.moveTo(x(p[0]), y(p[1]))));
+  ctx.stroke();
+
+  ctx.fillStyle = muted;
+  ctx.font = '10px ui-monospace, monospace';
+  ctx.fillText(fmtClock(t0), pad.left, height - 4);
+  const endLabel = fmtClock(t1);
+  ctx.fillText(endLabel, width - pad.right - ctx.measureText(endLabel).width, height - 4);
+  ctx.fillText(`max ${fmtUnits.format(maxQ)}`, pad.left, pad.top + 2);
+}
+
+function renderItemPanel() {
+  const key = currentItemKey();
+  const series = observations[key] || [];
+  const samples = Number(document.getElementById('sampleSelect').value) || 5;
+
+  drawChart(series);
+
+  const rate = windowRate(series, samples);
+  const windows = inStockWindows(series);
+  document.getElementById('chartLegend').textContent = series.length
+    ? `${series.length} Messungen · ${windows.length} In-Stock-Fenster · `
+      + (rate
+        ? `Abverkauf ${rate.rate.toFixed(2)}/min über ${rate.windows} Fenster`
+        : 'noch kein vollständiges Fenster')
+      + ' · schattiert = leer'
+    : 'Noch keine Messungen für dieses Item.';
+
+  renderTable('restockTable', RESTOCK_COLUMNS, recentRestocks(series, 5), {
+    empty: 'Noch kein Nachschub beobachtet.',
+  });
+  renderTable('hourTable', HOUR_COLUMNS, hourProfile(series).filter((h) => h.rate !== null && h.samples >= 2), {
+    empty: 'Noch zu wenige Messungen je Tageszeit.',
+  });
 }
 
 // ---------- Daten ----------
@@ -608,6 +798,13 @@ function init() {
     render();
   });
   document.getElementById('refreshBtn').addEventListener('click', refresh);
+  document.getElementById('fromTornBtn').addEventListener('click', takeFromTorn);
+  document.getElementById('itemSelect').addEventListener('change', renderItemPanel);
+  document.getElementById('sampleSelect').addEventListener('change', renderItemPanel);
+  document.getElementById('itemPanel').addEventListener('toggle', renderItemPanel);
+  window.addEventListener('resize', () => {
+    if (document.getElementById('itemPanel').open) renderItemPanel();
+  });
 
   document.getElementById('yataUrl').value = s.yataUrl || YATA_URL;
   document.getElementById('saveSourceBtn').addEventListener('click', () => {

@@ -1,5 +1,5 @@
-import { APP_VERSION } from './config.js?v=12';
-import { fmtAge } from './freshness.js?v=12';
+import { APP_VERSION } from './config.js?v=13';
+import { fmtAge } from './freshness.js?v=13';
 
 const money = new Intl.NumberFormat('en-US');
 

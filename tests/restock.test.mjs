@@ -185,3 +185,59 @@ test('ohne Timer oder ohne Abverkauf gibt es keinen Zeitpunkt', () => {
     quantity: 50, at: at(0), drainPerMinute: 0, timer: { minutes: 60, low: 55, high: 65 },
   }), null, 'ohne Abverkauf ist kein Ausverkauf absehbar');
 });
+
+// ---------- Kennzahlen wie im Torn Travel Planner ----------
+
+const { inStockWindows, windowRate, recentRestocks, hourProfile } = await import('../js/restock.js');
+
+/** Zwei volle Zyklen plus ein laufendes Fenster. */
+const ZYKLEN = series([
+  [0, 200], [20, 100], [40, 0], [95, 0],
+  [100, 200], [120, 100], [140, 0], [195, 0],
+  [200, 200], [220, 140],
+]);
+
+test('ein In-Stock-Fenster reicht vom Nachschub bis zur letzten Messung mit Ware', () => {
+  // Genau die Definition des anderen Werkzeugs - bis zur letzten Messung
+  // *mit* Ware, nicht bis zur Null: wann dazwischen ausverkauft wurde, weiß
+  // niemand.
+  const w = inStockWindows(ZYKLEN);
+  assert.equal(w.length, 3);
+  assert.equal(inMinutes(w[0].from), 0);
+  assert.equal(inMinutes(w[0].to), 20, 'nicht Minute 40, wo die Null steht');
+  assert.equal(w[0].rate, 5, '100 Stück in 20 Minuten');
+  assert.equal(w[0].complete, true);
+  assert.equal(w[2].complete, false, 'das laufende Fenster ist nicht abgeschlossen');
+});
+
+test('die Rate mittelt über die letzten N Fenster', () => {
+  assert.equal(windowRate(ZYKLEN, 1).rate, 3, 'nur das laufende Fenster');
+  assert.equal(windowRate(ZYKLEN, 2).rate, 4, '(5 + 3) / 2');
+  assert.equal(windowRate(ZYKLEN, 20).windows, 3, 'mehr Fenster als vorhanden gibt es nicht');
+  assert.equal(windowRate(series([[0, 100]]), 5), null);
+});
+
+test('die letzten Nachschübe kommen mit Dauer und Genauigkeit', () => {
+  const r = recentRestocks(ZYKLEN, 5);
+  assert.equal(r.length, 2, 'nur abgeschlossene Zyklen');
+  assert.equal(inMinutes(r[0].at), 200, 'der jüngste zuerst');
+  assert.equal(r[0].outageMinutes, 60);
+  assert.equal(r[0].amount, 200);
+  assert.equal(r[0].uncertaintyMinutes, 5, 'Lücke zwischen letzter Null und erster Ware');
+});
+
+test('das Tagesprofil ordnet den Abverkauf der Stunde zu', () => {
+  const profile = hourProfile(ZYKLEN);
+  assert.equal(profile.length, 24);
+  const aktiv = profile.filter((h) => h.rate !== null);
+  assert.ok(aktiv.length > 0);
+  assert.ok(aktiv.every((h) => h.rate > 0), 'nur fallende Abschnitte zählen');
+});
+
+test('ein Regal, das nie leer wird, hat trotzdem ein Fenster', () => {
+  const nieLeer = series([[0, 200], [30, 180], [60, 160]]);
+  const w = inStockWindows(nieLeer);
+  assert.equal(w.length, 1);
+  assert.equal(w[0].complete, false);
+  assert.ok(Math.abs(w[0].rate - 40 / 60) < 1e-9);
+});

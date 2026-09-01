@@ -59,9 +59,18 @@ export function countryName(code) {
  * Flugzeuge kuerzen die Reisezeit um einen festen Anteil. Die Werte stehen
  * im Spiel und lassen sich mit einer gemessenen Zeit ueberschreiben.
  */
+/**
+ * Die vier Flugarten, wie Torn sie in /user/travel benennt.
+ *
+ * Die Faktoren stammen aus der Community, nicht aus einer Dokumentation -
+ * deshalb schlaegt eine gemessene Zeit sie immer, und die Seite sagt dazu,
+ * dass es Schaetzungen sind. "Private" fehlte hier, bis der Abgleich mit
+ * Torns eigener Aufzaehlung es zeigte.
+ */
 export const AIRSTRIPS = [
   { key: 'standard', label: 'Standard', factor: 1 },
-  { key: 'airstrip', label: 'Privatflugzeug (Airstrip)', factor: 0.7 },
+  { key: 'airstrip', label: 'Airstrip', factor: 0.7 },
+  { key: 'private', label: 'Privatjet', factor: 0.7 },
   { key: 'business', label: 'Business Class', factor: 0.3 },
 ];
 

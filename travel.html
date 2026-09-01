@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bazaar Flip">
 <meta name="format-detection" content="telephone=no">
-<meta name="app-build" content="12">
+<meta name="app-build" content="13">
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'none';
   script-src 'self';
@@ -47,8 +47,10 @@
     <input type="number" id="travelCapacity" min="1" max="30" step="1" inputmode="numeric">
     <label class="field" for="travelAirstrip">Flieger</label>
     <select id="travelAirstrip"></select>
+    <button id="fromTornBtn">Aus Torn</button>
     <button id="refreshBtn" class="primary">Vorräte laden</button>
   </div>
+  <p class="hint" id="tornStateMsg"></p>
   <p class="hint" id="sourceMsg"></p>
   <p class="hint" id="collectedMsg"></p>
 
@@ -73,6 +75,41 @@
     </div>
     <div class="table-wrap">
       <table id="itemTable" class="cards"><thead></thead><tbody></tbody></table>
+    </div>
+  </details>
+
+  <details class="panel" id="itemPanel">
+    <summary>Einzelnes Item ansehen</summary>
+    <div class="controls">
+      <label class="field" for="itemSelect">Item</label>
+      <select id="itemSelect"></select>
+      <label class="field" for="sampleSelect">Mittelung</label>
+      <select id="sampleSelect">
+        <option value="1">letztes Fenster</option>
+        <option value="3">3 Fenster</option>
+        <option value="5" selected>5 Fenster</option>
+        <option value="10">10 Fenster</option>
+        <option value="20">20 Fenster</option>
+      </select>
+    </div>
+    <!-- Der Verlauf als Bild: leere Strecken schattiert, so wie im Torn
+         Travel Planner. Canvas statt SVG, weil hunderte Punkte als Pfad die
+         Seite unnötig aufblähen. -->
+    <canvas id="itemChart" height="140" aria-label="Vorratsverlauf"></canvas>
+    <p class="hint" id="chartLegend"></p>
+    <div class="grid">
+      <div>
+        <h3 class="mt">Letzte Nachschübe</h3>
+        <div class="table-wrap">
+          <table id="restockTable" class="cards"><thead></thead><tbody></tbody></table>
+        </div>
+      </div>
+      <div>
+        <h3 class="mt">Abverkauf nach Tageszeit</h3>
+        <div class="table-wrap">
+          <table id="hourTable" class="cards"><thead></thead><tbody></tbody></table>
+        </div>
+      </div>
     </div>
   </details>
 
@@ -167,6 +204,6 @@
   <span id="status"></span>
 </div>
 
-<script type="module" src="js/travelPage.js?v=12"></script>
+<script type="module" src="js/travelPage.js?v=13"></script>
 </body>
 </html>

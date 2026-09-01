@@ -214,3 +214,135 @@ export function nextRestock({
     waiting: false,
   };
 }
+
+// ---------- Kennzahlen wie im Torn Travel Planner ----------
+//
+// Damit zwei Werkzeuge nebeneinander nicht widerspruechlich aussehen, wird
+// hier genau dessen Definition uebernommen: die Abverkaufsrate gilt je
+// In-Stock-Fenster - vom Nachschub bis zur letzten Messung vor der Null (oder
+// bis jetzt, solange noch Ware da ist) - und wird ueber die letzten N Fenster
+// gemittelt.
+//
+// Das ist bewusst etwas anderes als die Schaetzung, mit der die App
+// vorhersagt: die gewichtet nach Alter und nimmt den Median. Beide Zahlen
+// haben ihren Zweck, und sie stehen deshalb nebeneinander statt vermischt.
+
+/**
+ * Zerlegt eine Reihe in Fenster, in denen Ware da war.
+ *
+ * @returns {Array<{from:number,to:number,startQty:number,endQty:number,
+ *                  minutes:number,sold:number,rate:number,complete:boolean}>}
+ */
+export function inStockWindows(series = []) {
+  const points = [...series].sort((a, b) => a[0] - b[0]);
+  const windows = [];
+  let start = null;
+
+  for (let i = 0; i < points.length; i++) {
+    const [ts, qty] = points[i];
+    const prev = i > 0 ? points[i - 1][1] : null;
+
+    // Ein Fenster beginnt beim Nachschub - oder mit der Reihe selbst, wenn
+    // sie schon mit Ware anfaengt.
+    if (qty > 0 && (start === null) && (prev === null || prev === 0)) {
+      start = { ts, qty };
+      continue;
+    }
+
+    if (start !== null && qty === 0) {
+      // Gemessen wird bis zur letzten Messung *mit* Ware, nicht bis zur Null:
+      // wann genau zwischen beiden ausverkauft wurde, weiss niemand.
+      const last = points[i - 1];
+      windows.push(makeWindow(start, last, true));
+      start = null;
+    }
+  }
+
+  if (start !== null) {
+    const last = points[points.length - 1];
+    if (last[0] > start.ts) windows.push(makeWindow(start, last, false));
+  }
+  return windows;
+}
+
+function makeWindow(start, last, complete) {
+  const minutes = (last[0] - start.ts) / MINUTE;
+  const sold = start.qty - last[1];
+  return {
+    from: start.ts,
+    to: last[0],
+    startQty: start.qty,
+    endQty: last[1],
+    minutes,
+    sold,
+    rate: minutes > 0 ? sold / minutes : 0,
+    complete,
+  };
+}
+
+/**
+ * Mittlere Abverkaufsrate ueber die letzten `samples` Fenster.
+ *
+ * @returns {{rate:number, windows:number, requested:number}|null}
+ */
+export function windowRate(series = [], samples = 5) {
+  const windows = inStockWindows(series).filter((w) => w.minutes > 0 && w.sold > 0);
+  if (!windows.length) return null;
+  const used = windows.slice(-Math.max(1, samples));
+  return {
+    rate: used.reduce((sum, w) => sum + w.rate, 0) / used.length,
+    windows: used.length,
+    requested: samples,
+  };
+}
+
+/**
+ * Die letzten Nachschub-Ereignisse mit ihrer Ausfalldauer.
+ *
+ * Die Dauer ist die Zeit, in der das Regal leer stand - zwischen der ersten
+ * Null und der ersten Messung mit Ware. Sie ist damit etwas laenger als der
+ * eigentliche Timer, weil der Ausverkauf schon vor der ersten Null lag.
+ */
+export function recentRestocks(series = [], count = 5) {
+  return findCycles(series)
+    .filter((c) => !c.open && c.restockTo !== null)
+    .map((c) => ({
+      at: c.restockTo,
+      outageMinutes: (c.restockTo - c.selloutTo) / MINUTE,
+      amount: c.amount,
+      // Wie genau der Zeitpunkt bekannt ist: die Luecke zwischen letzter Null
+      // und erster Messung mit Ware.
+      uncertaintyMinutes: (c.restockTo - c.restockFrom) / MINUTE,
+    }))
+    .slice(-count)
+    .reverse();
+}
+
+/**
+ * Abverkauf nach Tageszeit, in Stunden-Eimern.
+ *
+ * Jeder fallende Abschnitt zaehlt fuer die Stunde, in der er endet. Damit
+ * zeigt sich, wann ein Regal schnell leergeht - abends anders als nachts.
+ */
+export function hourProfile(series = []) {
+  const points = [...series].sort((a, b) => a[0] - b[0]);
+  const buckets = Array.from({ length: 24 }, () => ({ sold: 0, minutes: 0, samples: 0 }));
+
+  for (let i = 1; i < points.length; i++) {
+    const [t0, q0] = points[i - 1];
+    const [t1, q1] = points[i];
+    const minutes = (t1 - t0) / MINUTE;
+    if (minutes <= 0 || q1 >= q0) continue;
+
+    const hour = new Date(t1).getHours();
+    buckets[hour].sold += q0 - q1;
+    buckets[hour].minutes += minutes;
+    buckets[hour].samples += 1;
+  }
+
+  return buckets.map((b, hour) => ({
+    hour,
+    samples: b.samples,
+    rate: b.minutes > 0 ? b.sold / b.minutes : null,
+  }));
+}

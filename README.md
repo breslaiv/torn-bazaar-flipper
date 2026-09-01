@@ -559,6 +559,50 @@ Die dokumentierte Form:
   "timestamp": <ts> }
 ```
 
+### Abgestimmt auf den Torn Travel Planner
+
+Wer zwei Werkzeuge nebeneinander offen hat, will keine widersprüchlichen Zahlen. Deshalb
+übernimmt diese App die Definitionen aus
+[shab00m/torn-travel-planner](https://github.com/shab00m/torn-travel-planner) wörtlich:
+
+> „Depletion rate per in-stock window (restock → last snapshot before stock hits 0, or → now
+> while stock lasts) in items/minute"
+
+Ein **In-Stock-Fenster** endet also bei der letzten Messung *mit* Ware, nicht bei der Null —
+wann dazwischen ausverkauft wurde, weiß niemand. Gemittelt wird über die letzten 1, 3, 5, 10
+oder 20 Fenster, wie dort auswählbar.
+
+Diese Zahl steht **neben** der Schätzung, mit der die App vorhersagt, nicht an deren Stelle:
+die gewichtet nach Alter und nimmt den Median. Beide haben ihren Zweck, und wo sie
+auseinanderlaufen, ist das ein Hinweis statt eines Fehlers.
+
+Im Panel *Einzelnes Item ansehen* dazu, was der Planner ebenfalls zeigt: der **Verlauf** mit
+schattierten Leerphasen, die **letzten fünf Nachschübe** mit Ausfalldauer, und der **Abverkauf
+nach Tageszeit**. Bei den Nachschüben steht die Genauigkeit dabei — die Lücke zwischen letzter
+Null und erster Messung mit Ware; mehr gibt die Messdichte nicht her.
+
+### Kapazität und Flugart aus Torn
+
+Statt beides einzustellen, liest *Aus Torn* die Wahrheit: `/user/travel` liefert die Flugart,
+`/user/perks` die Kapazitäts-Boni. Beides braucht nur einen **Minimal-Key** — die niedrigste
+Stufe, die Torn kennt.
+
+Die Perks kommen als Fließtext, nicht als Zahlen, und es gibt keinen dokumentierten Katalog.
+Also wird gesucht statt angenommen: jede Zeile, die von Reisegepäck spricht und eine Zahl nennt.
+**Was dabei erkannt wurde, zeigt die Seite an** — eine Kapazität, die man nicht nachvollziehen
+kann, wäre schlimmer als eine selbst eingetragene:
+
+```
+Kapazität 21 (5 Grundlage + 16 aus Perks) · Flugart Airstrip
+erkannt: + 2 travel items [job]; + 10 travel items [faction];
+         Increases maximum travel items by 4 [book]
+```
+
+Der Abgleich mit Torns eigener Aufzählung (`Private | Business | Airstrip | Standard`) zeigte
+nebenbei, dass in der Fliegerauswahl **Privatjet fehlte**. Die Zeitfaktoren dahinter stammen
+weiterhin aus der Community, nicht aus einer Dokumentation — eine gemessene Zeit schlägt sie
+deshalb immer.
+
 ### Vorhersage
 
 Ein Vorrat bewegt sich in zwei Richtungen: Spieler kaufen ihn leer, und in Abständen legt der
@@ -776,7 +820,8 @@ travel.html         Flugplaner: Ziele, Erträge, Vorratsvorhersage
 js/travel.js        Länder, Reisezeiten, Ertrag je Flug und Minute
 js/yata.js          YATA-Client für die Auslandsvorräte, defensiv geparst
 js/stats.js         Median, Altersgewichtung, gewichtete Quantile
-js/restock.js       Zyklen finden, Timer eingrenzen, Mechanismus simulieren
+js/restock.js       Zyklen, Timer, Simulation, In-Stock-Fenster, Tagesprofil
+js/capacity.js      Kapazität aus Perks, Flugart aus Torns Aufzählung
 js/travelModels.js  die konkurrierenden Vorhersagemodelle
 js/travelStock.js   Messreihen, Modellwahl, Konformalbereich, Vorhersage
 js/travelPage.js    Verdrahtung der Flugseite
@@ -808,7 +853,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-354 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
+365 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
 Parallelität und Abbruch, Zeitstempel-Deutung, Scan-Ablauf, Markup, Sortierung,
 Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status, Bestandsbewertung, Flugplanung, Modellwahl, Vorratsvorhersage und Persistenz sowie die Key-, CSP-,
 Workflow- und Mobile-Prüfungen aus den Abschnitten oben.

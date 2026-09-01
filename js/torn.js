@@ -2,8 +2,8 @@
 // weav3r Item-Namen und Marktpreise bereits mitliefert. Der Key erlaubt nur
 // die Gegenprobe gegen den echten Item-Market-Tiefstpreis.
 
-import { TORN_API_BASE, TORN_RATE_LIMIT } from './config.js?v=12';
-import { RateLimiter } from './ratelimit.js?v=12';
+import { TORN_API_BASE, TORN_RATE_LIMIT } from './config.js?v=13';
+import { RateLimiter } from './ratelimit.js?v=13';
 
 export const limiter = new RateLimiter(TORN_RATE_LIMIT, 'torn');
 
@@ -58,4 +58,16 @@ export async function fetchItemMarketLow(key, itemId, opts = {}) {
     if (low === null || price < low) low = price;
   }
   return low;
+}
+
+/** Eigener Reisestatus - liefert unter anderem die Flugart. Minimal-Key. */
+export async function fetchTravel(key, opts = {}) {
+  const data = await tornGet('/user/travel', key, {}, opts);
+  return data?.travel ?? null;
+}
+
+/** Perks nach Quelle. Daraus leitet capacityFromPerks die Ladung ab. Minimal-Key. */
+export async function fetchPerks(key, opts = {}) {
+  const data = await tornGet('/user/perks', key, {}, opts);
+  return data?.perks ?? null;
 }
