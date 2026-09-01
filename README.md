@@ -918,6 +918,55 @@ Der Deckel gilt weiterhin für das, was **herausgeht**: was der Server ausliefer
 landet im `localStorage` eines Telefons. Was in der Datenbank bleibt, ist die
 Grundlage für jede spätere Auswertung und darf wachsen.
 
+### Das Sprachmodell
+
+Auf der lokalen Maschine läuft ein kleines Modell über Ollama. Die Regel, unter
+der es überhaupt existiert:
+
+> **Das Modell steht nie zwischen den Daten und einer Zahl.**
+
+Timer-Schätzung, FIFO, Rucksack, konforme Bänder und die Modellwahl bleiben
+deterministisch und getestet. Ein Modell, das „ich schätze mal 45 Minuten" sagt,
+klingt genau wie eines, das rechnet — und den Unterschied merkt man erst, wenn
+der Flug leer ankommt.
+
+Was bleibt, sind die Textkanten. Die erste ist `priceFromDescription()`: ein
+handgeschriebener Ausdruck, der `@ $1,234` sucht und bei jeder anderen
+Formulierung `null` liefert. Genau dort springt das Modell ein — **Regex zuerst,
+Modell nur als Auffangnetz.** Das ist auch der billigere Weg herum, und es
+protokolliert nebenbei, welche Formulierungen uns fehlen.
+
+**Die Absicherung** ist der eigentliche Kern von `js/llm.js`:
+
+```js
+onlyKnownNumbers(antwort, fakten)   // jede Ziffernfolge muss in der Eingabe stehen
+```
+
+Rechnet das Modell 4 × 830.000 aus und schreibt die Summe hin, ist das richtig
+gerechnet — steht aber nicht da. Die Antwort wird verworfen und der Aufrufer
+fällt auf die nackte Rechnung zurück. Damit kann das Modell schlecht
+formulieren, aber es kann keinen Preis erfinden. `1.240.000` und `1240000`
+gelten dabei als dieselbe Zahl, sonst schlüge die Prüfung bei jeder korrekten,
+nur anders formatierten Antwort an.
+
+**Ob das Modell taugt, wird gemessen, nicht geglaubt:**
+
+```bash
+node tools/llm-check.mjs --model qwen2.5:3b
+```
+
+Zwölf Logzeilen, sechs davon trifft die Regex, sechs nicht. Das Urteil am Ende
+ist hart: bricht das Modell auch nur einen Fall, den die Regex richtig hat, ist
+es unbrauchbar — egal wie gut es bei den schweren aussieht. Rettet es keinen der
+schweren, war der Aufwand umsonst. Dazwischen liegt der Nutzen.
+
+Kein npm-Paket: Ollama spricht schlichtes JSON über HTTP, das kann `fetch`.
+
+Der Browser erreicht `127.0.0.1:11434` nicht, weil die CSP `connect-src`
+namentlich auflistet. Der saubere Weg wäre später ein Durchreichen über
+`tools/serve.mjs` — same-origin, statt einen weiteren Host in die Liste zu
+schreiben.
+
 ### Dieselbe Rechnung, nicht eine zweite
 
 `tools/collect-local.mjs` benutzt `collectOnce()` und `watch()` aus dem
@@ -1003,6 +1052,8 @@ js/table.js         Tabellenbau mit data-label für die Kartenansicht
 js/ledgerPage.js    Verdrahtung der Ledger-Seite
 tools/make-icon.py  erzeugt icon-180.png fuer den iOS-Home-Screen
 js/normal.js        Vergleich eines Preises mit dem Normalbereich seines Items
+js/llm.js                Ollama-Anbindung plus die Absicherung gegen erfundene Zahlen
+tools/llm-check.mjs      misst, ob das lokale Modell die Aufgabe überhaupt taugt
 tools/setup-local.sh     richtet die lokale Fassung auf Ubuntu Server ein
 tools/serve.mjs          lokaler Webserver, liefert die Vorräte aus der Datenbank
 tools/store.mjs          Messreihen in SQLite, über das eingebaute node:sqlite
@@ -1024,7 +1075,7 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-443 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
+459 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
 Parallelität und Abbruch, Zeitstempel-Deutung, Scan-Ablauf, Markup, Sortierung,
 Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status, Bestandsbewertung, Flugplanung, Modellwahl, Vorratsvorhersage und Persistenz sowie die Key-, CSP-,
 Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
