@@ -196,6 +196,21 @@ Messinstrument: es lässt sich mit `--model` gegen ein größeres Modell laufen,
 sobald eines in 4 GB passt und man es wissen will. Der deterministische Teil —
 `merkmale()` und `urteil()` — ist unabhängig davon nützlich und getestet.
 
+**`/health` wächst mit der Sammlung.** `storeStats()` zählt `COUNT(*)` und sucht
+`MIN(ts)`/`MAX(ts)` über die ganze Tabelle; `ts` steht am Ende des
+Primärschlüssels, ist also nicht direkt erreichbar. Gemessen: 305 ms bei
+1,8 Mio Zeilen (22,7 Tage), hochgerechnet rund **5 s nach einem Jahr**. Zwei
+Sackgassen sind schon geprüft — ein Index auf `ts` macht es **langsamer**
+(529 ms) und die Datei 75 % größer, und `GROUP BY` statt `COUNT(DISTINCT` auf
+Text bringt nur 8 %. Der Aufwand steckt im vollen Scan selbst. Wer das
+angeht, braucht mitgeführte Zähler — also Schreibpfad-Aufwand, und den lohnt
+es erst, wenn die Sekunden spürbar werden.
+
+**Alte Messpunkte ausdünnen.** Bisher nicht nötig: 45,8 Byte je Punkt,
+80 000 Punkte am Tag, 1,25 GB im Jahr. Falls es je knapp wird, ist volle
+Auflösung für die letzten Wochen und ein groeberes Raster davor der naheliegende
+Weg — aber vorher messen, ob die Zyklenerkennung das übersteht.
+
 **Ein maßstabsfreies Fehlermaß.** `rankModels()` vergleicht in Stück. Innerhalb
 einer Reihe ist das richtig, weil dort immer derselbe Maßstab gilt; über Reihen
 hinweg ist es irreführend, und genau daran bin ich einmal hängengeblieben
