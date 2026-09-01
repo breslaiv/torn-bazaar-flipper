@@ -84,9 +84,16 @@ test('die Seiten erlauben Verbindungen nur zu Torn und weav3r', () => {
     // Historie neben der Seite, also keine fremde Stelle.
     // yata.yt und prombot.co.uk sammeln beide Auslandsvorraete - Torn und
     // weav3r kennen sie nicht. Beide nur auf den Seiten, die sie brauchen.
-    const allowed = /travel|diagnose/.test(page)
-      ? ["'self'", 'https://api.torn.com', 'https://prombot.co.uk', 'https://weav3r.dev', 'https://yata.yt']
-      : ["'self'", 'https://api.torn.com', 'https://weav3r.dev'];
+    // Die Datenlage-Seite rechnet nur mit dem, was schon gesammelt wurde -
+    // sie fragt keine fremde Stelle. Deshalb steht dort ausschliesslich
+    // 'self', und das ist keine Nachlaessigkeit, sondern die engste Regel,
+    // die eine Seite haben kann. Wer ihr spaeter einen Host hinzufuegt, muss
+    // hier vorbei und sich erklaeren.
+    const allowed = /daten/.test(page)
+      ? ["'self'"]
+      : /travel|diagnose/.test(page)
+        ? ["'self'", 'https://api.torn.com', 'https://prombot.co.uk', 'https://weav3r.dev', 'https://yata.yt']
+        : ["'self'", 'https://api.torn.com', 'https://weav3r.dev'];
     assert.deepEqual(hosts, allowed, `${page}: unerwartete Ziel-Hosts`);
 
     assert.match(csp[1], /default-src 'none'/, `${page}: default-src muss 'none' sein`);

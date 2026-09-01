@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14161a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Bazaar Flip">
+<meta name="format-detection" content="telephone=no">
+<meta name="app-build" content="17">
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'none';
+  script-src 'self';
+  style-src 'self';
+  img-src 'self' data:;
+  manifest-src 'self';
+  connect-src 'self';
+  base-uri 'none';
+  form-action 'none'">
+<title>Datenlage &mdash; Torn Bazaar Flipper</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header>
+  <h1>Datenlage</h1>
+  <span id="appVersion" class="tag"></span>
+  <nav>
+    <a href="index.html">Scanner</a>
+    <a href="ledger.html">Ledger</a>
+    <a href="travel.html">Flüge</a>
+    <a href="daten.html" aria-current="page">Daten</a>
+    <a href="diagnose.html">Diagnose</a>
+  </nav>
+</header>
+
+<main>
+  <p class="note">
+    Wie weit die Sammlung ist — und wie weit sie noch muss.
+    <strong>Gezählt wird in Nachfüll-Zyklen, nicht in Messpunkten:</strong>
+    ein Regal, das stundenlang voll dasteht, liefert beliebig viele Punkte und
+    verrät nichts über seinen Timer. Erst wenn ein Item mehrfach leerlief, ist
+    seine Vorhersage überhaupt prüfbar.
+  </p>
+
+  <div class="actions">
+    <button id="reload" class="primary">Neu laden</button>
+    <span id="status"></span>
+  </div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="panel">
+    <h2>Reife der Reihen</h2>
+    <p class="hint">
+      Wie oft ein Regal beobachtet leerlief und wieder gefüllt wurde. Jeder
+      Zyklus grenzt den Timer von zwei Seiten ein, also wird die Schätzung mit
+      jedem enger — die Schwellen hier sind gesetzt, nicht gemessen.
+    </p>
+    <div class="bars" id="reife"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Gewähltes Modell</h2>
+    <p class="hint">
+      Welches Vorhersageverfahren je Reihe gewinnt. Reihen ohne genug
+      Kontrollen tauchen als <em>zu wenig geprüft</em> auf — das ist eine
+      Lücke, kein Ergebnis.
+    </p>
+    <div class="bars" id="modelle"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Nach Land</h2>
+    <p class="hint">Beobachtete Zyklen je Land — dort entstehen die Timer.</p>
+    <div class="bars" id="laender"></div>
+  </div>
+
+  <details class="panel" id="detailsPanel">
+    <summary><h2>Jede Reihe einzeln</h2></summary>
+    <div class="sortbar">
+      <label class="field" for="sortSelect">Sortieren
+        <select id="sortSelect">
+          <option value="cycles">Zyklen</option>
+          <option value="points">Messpunkte</option>
+          <option value="timer">Timer-Genauigkeit</option>
+        </select>
+      </label>
+    </div>
+    <div class="table-wrap">
+      <table class="cards" id="reihen">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Punkte</th>
+            <th>Zyklen</th>
+            <th>Timer</th>
+            <th>Modell</th>
+          </tr>
+        </thead>
+        <tbody id="reihenBody"></tbody>
+      </table>
+    </div>
+  </details>
+</main>
+
+<script type="module" src="js/datenPage.js?v=17"></script>
+</body>
+</html>

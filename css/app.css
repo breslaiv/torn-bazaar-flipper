@@ -281,6 +281,50 @@ thead th.sorted { color: var(--accent); }
 /* Zugeklappt braucht der Kasten nicht die Polsterung eines Formulars. */
 details.panel:not([open]) { padding: 6px 12px; }
 
+/* ---------- Balkenreihen ----------
+   Fuer Groessenvergleiche innerhalb einer Kategorie: wie viele Reihen haben
+   wie viele Zyklen, welches Modell gewinnt wie oft. Bewusst **einfarbig** -
+   die Balken vergleichen Mengen, nicht Identitaeten. Eine Farbe je Zeile
+   wuerde Zugehoerigkeit behaupten, wo nur Groesse gemeint ist, und waere fuer
+   Farbenblinde zusaetzlich die einzige Unterscheidung.
+
+   Die Breite setzt das Skript zur Laufzeit ueber die CSSOM (el.style.width),
+   weil die CSP kein style-Attribut im Markup erlaubt. */
+.bars { display: grid; gap: 8px; }
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(88px, 26%) 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+.bar-row .bar-label { font-size: 13px; color: var(--muted); }
+.bar-track {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--border);
+  overflow: hidden;
+}
+.bar-track > span {
+  display: block;
+  height: 100%;
+  width: 0;
+  /* Das Datenende rundet, der Nullpunkt bleibt buendig an der Grundlinie. */
+  border-radius: 0 5px 5px 0;
+  background: var(--accent);
+  transition: width .25s ease-out;
+}
+/* Der Wert traegt Text-Farbe, nicht die des Balkens: die Farbe gehoert der
+   Flaeche, die Zahl bleibt lesbar. */
+.bar-row .bar-value {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  min-width: 84px;
+  text-align: right;
+}
+.bar-row.is-empty .bar-track > span { background: var(--border); }
+
 /* ---------- Handy ---------- */
 
 @media (max-width: 720px) {
