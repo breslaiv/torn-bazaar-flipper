@@ -159,6 +159,15 @@ async function findTravelRoutes() {
   emit();
   setStatus('Suche Routen…');
 
+  // Gegenprobe zuerst: eine Route, von der wir wissen, dass sie antwortet.
+  // Ohne sie laesst sich "Pfad gibt es nicht" nicht von "Host nicht
+  // erreichbar" unterscheiden - beides meldet der Browser gleich.
+  const control = await probe('/health', settings);
+  emit(control.error
+    ? `  ${'/health (Kontrolle)'.padEnd(22)} Fehler: ${control.error}`
+    : `  ${'/health (Kontrolle)'.padEnd(22)} ${String(control.status).padStart(3)}  ✓ erreichbar`);
+  emit();
+
   const treffer = [];
   for (const path of TRAVEL_CANDIDATES) {
     const r = await probe(path, settings);
@@ -175,10 +184,23 @@ async function findTravelRoutes() {
 
   emit();
   if (!treffer.length) {
-    emit('Keiner der geratenen Pfade antwortet. Der sicherste Weg:');
-    emit('die Seite mit den Auslandsvorräten in einem Desktop-Browser öffnen,');
-    emit('Entwicklertools → Netzwerk → Filter XHR, neu laden — dort steht die');
-    emit('Adresse, die die Seite selbst aufruft.');
+    if (!control.error) {
+      // Der aussagekraeftige Fall: der Host antwortet, diese Pfade nicht.
+      emit('weav3r ist erreichbar (siehe Kontrolle), aber keiner der geratenen Pfade');
+      emit('liefert eine lesbare Antwort. Das spricht dafür, dass es sie nicht gibt:');
+      emit('eine 404-Antwort ohne CORS-Header sieht im Browser wie ein Netzwerkfehler');
+      emit('aus, weil fetch nicht einmal ihren Status lesen darf.');
+    } else {
+      emit('Auch die Kontrolle scheitert — dann liegt es nicht an den Pfaden,');
+      emit('sondern am Zugriff auf weav3r insgesamt (Adblocker, Netz, Ausfall).');
+    }
+    emit();
+    emit('Zwei Wege weiter:');
+    emit('1. Workflow „Quellen abklopfen" in GitHub Actions — der sieht echte');
+    emit('   Statuscodes, weil CORS dort nicht gilt.');
+    emit('2. Die Seite mit den Auslandsvorräten im Desktop-Browser öffnen,');
+    emit('   Entwicklertools → Netzwerk → Filter XHR, neu laden — dort steht die');
+    emit('   Adresse, die die Seite selbst aufruft.');
     setStatus('Keine Route gefunden — Bericht kopieren und schicken.', 'error');
     return;
   }

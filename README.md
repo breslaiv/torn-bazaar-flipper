@@ -521,9 +521,14 @@ Hosts sind zugelassen.
 
 **Was ein Browser dabei nicht herausfinden kann.** Ohne CORS-Freigabe darf `fetch` nicht einmal
 den Status einer fremden Antwort lesen — ein 404 und eine Blockade sind dort ununterscheidbar,
-beides meldet sich als Netzwerkfehler. Bei prombot.co.uk kam auf alle zwölf Pfade genau das:
-belegt ist damit nur, dass die Seite Prometheus nicht lesen darf, nicht dass es die Routen nicht
-gibt.
+beides meldet sich als Netzwerkfehler. Genau das kam auf alle zwölf Pfade, bei prombot.co.uk
+*und* bei weav3r.
+
+Deshalb läuft eine **Gegenprobe** auf `/health` mit: antwortet die, ist der Host erreichbar, und
+die stummen Pfade sind mit hoher Wahrscheinlichkeit schlicht 404 — deren Antwort trägt bei
+weav3r keine CORS-Header. Scheitert auch die Kontrolle, liegt es am Zugriff insgesamt
+(Adblocker, Netz, Ausfall). Ohne diese eine Zeile sieht beides gleich aus, und der Bericht
+behauptet mehr, als er weiß.
 
 Der Workflow **Quellen abklopfen** (von Hand auslösbar) fragt dieselben Pfade aus GitHub Actions
 ab, wo CORS nicht gilt, und zeigt echte Statuscodes, Inhaltstypen und ob eine `Access-Control-
