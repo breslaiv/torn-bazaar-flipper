@@ -114,3 +114,48 @@ test('die Einstellungen sind nicht dauerhaft aufgeklappt', () => {
   // Sonst stehen auf dem Handy 15 Felder zwischen Seitenanfang und Treffern.
   assert.doesNotMatch(html['./index.html'], /<details[^>]*\sopen[\s>]/);
 });
+
+test('native Bedienelemente kommen dunkel', () => {
+  // Ohne color-scheme rendert iOS Datumsfeld, Auswahlliste und Tastatur hell,
+  // mitten in einer sonst durchgehend dunklen Seite.
+  assert.match(css, /color-scheme:\s*dark/);
+});
+
+test('jede Seite fuehrt zu jeder anderen und zeigt, wo man ist', () => {
+  const names = PAGES.map((p) => p.replace('./', ''));
+  for (const page of PAGES) {
+    const nav = html[page].match(/<nav>([\s\S]*?)<\/nav>/);
+    assert.ok(nav, `${page}: keine Navigation`);
+    for (const target of names) {
+      assert.ok(nav[1].includes(`href="${target}"`), `${page} verlinkt ${target} nicht`);
+    }
+    // Genau ein aria-current: sonst ist entweder keine oder jede Seite die
+    // aktuelle, und die Hervorhebung sagt nichts mehr aus.
+    const current = nav[1].match(/aria-current="page"/g) || [];
+    assert.equal(current.length, 1, `${page}: ${current.length} Eintraege als aktuell markiert`);
+    assert.match(
+      nav[1],
+      new RegExp(`href="${page.replace('./', '')}" aria-current="page"`),
+      `${page}: die aktuelle Seite ist nicht die markierte`,
+    );
+  }
+});
+
+test('die Navigation ist auf dem Handy antippbar', () => {
+  // Als reine Textlinks waere jedes Ziel rund 60x18px gross.
+  const mobile = css.split('@media (max-width: 720px)')[1];
+  const rule = mobile.match(/header nav a \{([^}]+)\}/);
+  assert.ok(rule, 'keine Mobile-Regel fuer die Navigation');
+  assert.match(rule[1], /min-height:\s*44px/);
+});
+
+test('jedes for= trifft ein Feld, das es gibt', () => {
+  // Ein Label ins Leere ist auf dem Handy ein totes Tippziel und fuer
+  // VoiceOver eine fehlende Zuordnung - beides faellt beim Lesen nicht auf.
+  for (const page of PAGES) {
+    const ids = new Set([...html[page].matchAll(/id="([^"]+)"/g)].map((m) => m[1]));
+    for (const m of html[page].matchAll(/for="([^"]+)"/g)) {
+      assert.ok(ids.has(m[1]), `${page}: <label for="${m[1]}"> zeigt ins Leere`);
+    }
+  }
+});

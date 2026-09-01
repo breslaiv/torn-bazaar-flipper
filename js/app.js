@@ -1,10 +1,12 @@
-import { DEFAULTS } from './config.js?v=13';
-import { loadSettings, saveSettings, clearSettings, hasSavedSettings } from './storage.js?v=13';
-import { runFlipScan, runDollarScan, verifyWithTorn } from './scan.js?v=13';
+import { DEFAULTS } from './config.js?v=14';
+import { loadSettings, saveSettings, clearSettings, hasSavedSettings } from './storage.js?v=14';
+import { runFlipScan, runDollarScan, verifyWithTorn } from './scan.js?v=14';
 import {
   renderRows, renderHead, setStatus, installSorting, fmtMoneyShort, showVersion,
-} from './ui.js?v=13';
-import { statsMap, STATS_URL } from './normal.js?v=13';
+} from './ui.js?v=14';
+import { statsMap, STATS_URL } from './normal.js?v=14';
+import { funnelStages, biggestDrop } from './funnel.js?v=14';
+import { restorePanels } from './panels.js?v=14';
 
 const NUMERIC_FIELDS = new Set([
   'sellFactor', 'marketFeePct', 'prescreenPct', 'maxCandidates', 'listingsPerItem',
@@ -54,26 +56,80 @@ function setProgress(pct) {
   bar.firstElementChild.style.width = `${Math.max(0, Math.min(100, pct))}%`;
 }
 
-function dropReasons(stats, settings) {
-  const parts = [];
-  if (settings.scanMode === 'flip') {
-    if (stats.withoutBuyer) parts.push(`${stats.withoutBuyer} ohne aktiven Käufer`);
-    if (stats.buyerBelowRating) {
-      parts.push(`${stats.buyerBelowRating} nur unter Bewertung ${settings.minBuyerRating}`);
+/**
+ * Zeichnet den Trichter: eine Zeile je Siebstufe, mit Balken und Grund.
+ *
+ * Der Balken ist auf die groesste Zahl im selben Abschnitt bezogen, nicht auf
+ * die erste Zeile - der Uebergang von Items auf einzelne Angebote springt
+ * sonst ueber die Skala hinaus.
+ */
+function renderFunnel(stats, rows, settings) {
+  const box = document.getElementById('funnel');
+  const lead = document.getElementById('funnelHint');
+  const stages = funnelStages(stats, rows, settings);
+  const worst = biggestDrop(stages);
+
+  const peak = {};
+  for (const stage of stages) {
+    peak[stage.section] = Math.max(peak[stage.section] || 0, stage.kept);
+  }
+
+  box.replaceChildren();
+  let previousSection = null;
+
+  for (const stage of stages) {
+    const row = document.createElement('div');
+    row.className = 'funnel-row';
+    if (previousSection && stage.section !== previousSection) row.classList.add('section-start');
+    if (stage === worst) row.classList.add('worst');
+    if (!stage.kept) row.classList.add('gone');
+    previousSection = stage.section;
+
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = stage.label;
+
+    const n = document.createElement('span');
+    n.className = 'n';
+    n.textContent = stage.kept.toLocaleString('de-DE');
+
+    const bar = document.createElement('span');
+    bar.className = 'bar';
+    const fill = document.createElement('span');
+    const max = peak[stage.section] || 1;
+    // Ueber CSSOM gesetzt, nicht als style-Attribut im Markup: die CSP
+    // verbietet Inline-Styles, diese Zuweisung erlaubt sie.
+    fill.style.width = `${Math.round((stage.kept / max) * 100)}%`;
+    bar.append(fill);
+
+    row.append(label, n, bar);
+
+    if (stage.lost > 0 && stage.why) {
+      const why = document.createElement('span');
+      why.className = 'why';
+      why.textContent = `\u2212${stage.lost.toLocaleString('de-DE')}: ${stage.why}`
+        + (stage.control ? ` \u00b7 Regler \u201e${stage.control}\u201c` : '');
+      row.append(why);
     }
+
+    box.append(row);
   }
-  if (stats.filteredOut) {
-    // Ein zu strenger Frische- oder Preisfilter saehe sonst aus wie ein
-    // leerer Markt.
-    parts.push(`${stats.filteredOut} profitabel, aber über Alter oder Preisgrenze`);
+
+  box.hidden = false;
+  if (worst) {
+    lead.textContent = `Die meisten Items fallen bei \u201e${worst.label}\u201c heraus `
+      + `(${worst.lost.toLocaleString('de-DE')}). Ansetzen k\u00f6nntest du beim Regler \u201e${worst.control}\u201c.`;
+    lead.hidden = false;
+  } else {
+    lead.hidden = true;
   }
-  return parts.length ? ` Davon ${parts.join(', ')}.` : '';
 }
 
-function summarise(rows, stats, settings) {
-  const why = dropReasons(stats, settings);
+function summarise(rows, stats) {
   if (!rows.length) {
-    return `Keine Treffer über den Filtern. ${stats.candidates} Kandidaten geprüft.${why}`;
+    // Das Warum steht vollstaendig im Trichter darueber; die Leiste ist auf
+    // dem Handy eine Zeile hoch und darf nicht die Haelfte davon wiederholen.
+    return `Keine Treffer über den Filtern. ${stats.candidates} Kandidaten geprüft.`;
   }
 
   const buyable = rows.filter((r) => r.units > 0);
@@ -86,7 +142,7 @@ function summarise(rows, stats, settings) {
   // hinten ab. Der Einsatz gehoert direkt daneben - ein Profit von 4 Mio.
   // heisst wenig, wenn 30 Mio. dafuer bereitliegen muessen.
   return `Profit ${fmtMoneyShort(total)} bei ${fmtMoneyShort(spend)} Einsatz. `
-    + `${rows.length} Treffer aus ${stats.candidates} Kandidaten.${rest}${why}`;
+    + `${rows.length} Treffer aus ${stats.candidates} Kandidaten.${rest}`;
 }
 
 async function runScan() {
@@ -122,7 +178,8 @@ async function runScan() {
       sorter.resort();
     }
 
-    setStatus(summarise(currentRows, stats, settings), currentRows.length ? 'ok' : '');
+    renderFunnel(stats, currentRows, settings);
+    setStatus(summarise(currentRows, stats), currentRows.length ? 'ok' : '');
     document.getElementById('lastRun').textContent = new Date().toLocaleTimeString('de-DE');
   } catch (err) {
     if (err.name === 'AbortError') setStatus('Abgebrochen.');
@@ -184,9 +241,11 @@ function init() {
   syncModeVisibility();
   renderHead();
 
-  // Beim ersten Besuch aufgeklappt, danach zu: auf dem Handy sind das
-  // sonst 15 Felder zwischen Seitenanfang und Trefferliste.
-  document.getElementById('settingsPanel').open = !hasSavedSettings();
+  // Beim ersten Besuch aufgeklappt, danach so, wie man ihn verlassen hat.
+  restorePanels({
+    page: 'index',
+    defaults: { settingsPanel: !hasSavedSettings(), advancedPanel: false },
+  });
 
   document.getElementById('scanMode').addEventListener('change', syncModeVisibility);
 

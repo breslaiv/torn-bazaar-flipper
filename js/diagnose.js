@@ -1,13 +1,13 @@
-import { loadSettings, saveSettings } from './storage.js?v=13';
+import { loadSettings, saveSettings } from './storage.js?v=14';
 import {
   fetchHealth, fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems,
   probe, TRAVEL_CANDIDATES,
-} from './weav3r.js?v=13';
-import { fetchKeyInfo } from './torn.js?v=13';
-import { fetchTravelStocks, travelUrl } from './yata.js?v=13';
-import { probeUrl, PROMETHEUS_BASE, PROMETHEUS_CANDIDATES } from './probe.js?v=13';
-import { countryName } from './travel.js?v=13';
-import { setStatus, fmtMoney, showVersion } from './ui.js?v=13';
+} from './weav3r.js?v=14';
+import { fetchKeyInfo } from './torn.js?v=14';
+import { fetchTravelStocks, travelUrl } from './yata.js?v=14';
+import { probeUrl, PROMETHEUS_BASE, PROMETHEUS_CANDIDATES } from './probe.js?v=14';
+import { countryName } from './travel.js?v=14';
+import { setStatus, fmtMoney, showVersion } from './ui.js?v=14';
 
 const reportEl = document.getElementById('report');
 const lines = [];

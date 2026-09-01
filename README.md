@@ -47,6 +47,53 @@ im Bazaar stehen — der Kaufpreis ist per Definition 1, der Profit praktisch de
 Marktwert. Diese Listings sind aus `/marketplace/{id}` bewusst ausgeschlossen und nur
 über diese Route zu finden.
 
+## Warum keine Treffer
+
+Eine leere Trefferliste ist keine Auskunft. Sie kann heißen: der Markt gibt gerade nichts
+her, der Rabatt-Regler steht zu streng, das Kandidatenlimit schneidet zu früh ab, oder der
+Mindestprofit ist zu hoch. Das sind vier verschiedene Handlungen, und ohne Zwischenstände
+sehen sie alle gleich aus.
+
+Nach jedem Scan steht deshalb über der Tabelle ein Trichter — eine Zeile je Siebstufe, in
+genau der Reihenfolge, in der `scan.js` tatsächlich siebt:
+
+```
+Katalog                     400
+Mit Bazaar und Preis        320   −80: kein Bazaar-Listing oder kein Marktpreis
+Unter Rabattschwelle         48   −272: teurer als 90 % vom Marktpreis · Regler „Kandidat ab Rabatt"
+Erwarteter Profit reicht     48
+Kandidaten geprüft           25   −23: Limit von 25 Kandidaten · Regler „Max. Kandidaten"
+Mit Käufer                   15   −10: 8 ohne aktiven Abnehmer, 2 nur unter Bewertung 0
+────────────────────────────────
+Angebote gefunden            30
+Über den Profitfiltern       15   −15: unter $10.000 pro Stück oder 5 % Marge
+Über Alter und Preisgrenze   15
+Im Budget                     2   −13: Budget von $900.000 aufgebraucht · Regler „Budget"
+```
+
+Jede Stufe nennt den Regler, der sie steuert; die Stufe mit dem größten Verlust ist
+hervorgehoben und wird darüber im Klartext benannt. Stufen ohne gesetzten Regler — Budget
+auf 0, keine Preisgrenze — tauchen gar nicht erst auf.
+
+Drei Entscheidungen dahinter:
+
+**Die Zählung kommt aus derselben Funktion, die wirklich siebt.** `prescreenBreakdown()`
+gibt die Zwischenstände zurück, `prescreen()` ist nur noch deren letzte Stufe. Eine zweite
+Zählfunktion daneben wäre nach der ersten Änderung still falsch geworden.
+
+**Der Trichter hat zwei Abschnitte.** Bis „Mit Käufer" werden Items gezählt, danach
+einzelne Bazaar-Listings — ein Item bringt mehrere mit. Ohne sichtbare Trennung springt
+die Zahl mitten im Trichter nach oben und sieht aus wie ein Rechenfehler.
+
+**Fehlgeschlagene Abfragen bekommen eine eigene Stufe.** Ein Rate-Limit oder ein
+Netzaussetzer sah vorher aus wie ein Markt, der nichts hergibt — man dreht dann am Rabatt,
+statt es noch einmal zu versuchen. Aufgefallen ist das erst im Browser, als der Mock nicht
+griff und der Trichter ungerührt behauptete, alle 25 Kandidaten seien geprüft worden.
+
+Der Hinweis zeigt nur auf Stufen, an denen sich etwas einstellen lässt. Dass 80 Items
+keinen Bazaar-Eintrag haben, ist oft der größte Posten — aber eine Sackgasse.
+
+
 ## Der Normalbereich
 
 **„20% unter Marktpreis" heißt beim einen Item Schnäppchen und beim anderen Normalzustand.**
@@ -466,7 +513,16 @@ drei gleichzeitig im Bild.
 - Ein Scan dauert 30–60 Sekunden. Ein Fortschrittsbalken in der Leiste zeigt, dass noch
   etwas passiert.
 - Die Einstellungen sind ab dem zweiten Besuch zugeklappt — sonst stehen 15 Felder zwischen
-  Seitenanfang und Trefferliste.
+  Seitenanfang und Trefferliste. Häufig Gebrauchtes steht direkt darin; alles Seltene liegt
+  in *Feineinstellung* eine Ebene tiefer. Welchen Regler man braucht, sagt der Trichter.
+- Aufklapper öffnen sich so, wie man die Seite verlassen hat (`js/panels.js`, eigener
+  Speicherschlüssel — das ist Bedienzustand, kein Wert für den Export). Auf der Flug-Seite
+  mit ihren sechs Kästen spart das bei jedem Besuch dieselbe Klickstrecke.
+- Die Navigation zeigt alle vier Seiten, auch die aktuelle, und markiert sie mit
+  `aria-current="page"`. Als Reihe kleiner Textlinks war jedes Ziel rund 60 × 18 px groß
+  und man sah nirgends, wo man war.
+- `color-scheme: dark` auf `:root`. Ohne das rendert iOS Datumsfeld, Auswahlliste und
+  Tastatur hell — mitten in einer sonst durchgehend dunklen App.
 - Kein verschachteltes Scrollen: auf dem Handy scrollt die Seite, nicht ein Kasten in ihr.
 
 **Auf den Home-Screen legen:** In Safari über *Teilen → Zum Home-Bildschirm*. Das Manifest
@@ -848,7 +904,9 @@ js/freshness.js     Alter von Listings und Käufern aus uneinheitlichen Zeitstem
 js/scan.js          Ablauf eines Scans, abbrechbar, mit Fortschrittsmeldung
 js/storage.js       localStorage
 js/ui.js            Spaltendefinition, Tabelle/Karten, Sortierung
-js/app.js           Verdrahtung, Fortschritt
+js/funnel.js        Siebstufen eines Scans - wo die Items geblieben sind
+js/panels.js        merkt sich je Seite, welche Aufklapper offen waren
+js/app.js           Verdrahtung, Fortschritt, Trichter
 travel.html         Flugplaner: Ziele, Erträge, Vorratsvorhersage
 js/travel.js        Länder, Reisezeiten, Ertrag je Flug und Minute
 js/yata.js          YATA-Client für die Auslandsvorräte, defensiv geparst
@@ -886,10 +944,15 @@ ohne Netzwerk und ohne Mock-Framework.
 npm test
 ```
 
-373 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
+406 Tests über Response-Parsing, Vorauswahl, Käuferwahl, Profit-Rechnung, Budget-Verteilung,
 Parallelität und Abbruch, Zeitstempel-Deutung, Scan-Ablauf, Markup, Sortierung,
 Link-Erzeugung, FIFO-Zuordnung, Log-Auswertung, Angebots-Status, Bestandsbewertung, Flugplanung, Modellwahl, Vorratsvorhersage und Persistenz sowie die Key-, CSP-,
 Workflow- und Mobile-Prüfungen aus den Abschnitten oben.
+
+Zwei Wächter sind dazugekommen, weil beides beim Lesen nicht auffällt: dass jede Seite zu
+jeder anderen führt und genau einen Eintrag als aktuell markiert, und dass jedes `for=`
+ein Feld trifft, das es wirklich gibt. Das zweite hatte auf der Flug-Seite ein totes
+Label erwischt — `for="capacity"` bei einem Feld namens `travelCapacity`.
 
 Der Sortier-Controller wird gegen einen kleinen DOM-Stub getestet (`tests/sorting.test.mjs`),
 weil dort ein Fehler saß, den die reine Sortierfunktion nicht zeigen konnte.

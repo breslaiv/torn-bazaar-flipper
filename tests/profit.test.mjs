@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  prescreen, pickBuyer, minRating, buildFlipRows, buildDollarRows, passesFilters, sortByTotalProfit,
-  allocateBudget,
+  prescreen, prescreenBreakdown, pickBuyer, minRating, buildFlipRows, buildDollarRows,
+  passesFilters, rejectionReason, sortByTotalProfit, allocateBudget,
 } from '../js/profit.js';
 
 const base = {
@@ -253,4 +253,62 @@ test('die Reihenfolge der Liste bleibt erhalten', () => {
   // Sortiert wird spaeter im UI; allocateBudget darf die Liste nicht umbauen.
   const out = allocateBudget([flip(1, 100, 1, 10), flip(2, 10, 1, 5)], 50);
   assert.deepEqual(out.map((r) => r.itemId), [1, 2]);
+});
+
+
+// --- Zwischenstaende, aus denen der Trichter gebaut wird ---
+
+test('prescreenBreakdown zaehlt jede Siebstufe einzeln', () => {
+  const b = prescreenBreakdown(catalog, base);
+  assert.equal(b.total, 4);
+  // "Kein Bazaar" hat weder Listing noch Preis.
+  assert.deepEqual(b.listed.map((i) => i.itemId), [1, 2, 3]);
+  assert.deepEqual(b.discounted.map((i) => i.itemId), [1, 2]);
+  assert.deepEqual(b.affordable.map((i) => i.itemId), [1, 2]);
+  assert.deepEqual(b.capped.map((i) => i.itemId), [1, 2]);
+});
+
+test('die Preisgrenze wirkt als eigene Stufe', () => {
+  const b = prescreenBreakdown(catalog, { ...base, maxBuyPrice: 100000 });
+  assert.deepEqual(b.discounted.map((i) => i.itemId), [1, 2]);
+  assert.deepEqual(b.affordable.map((i) => i.itemId), [2], 'Item 1 kostet 600.000');
+});
+
+test('das Kandidatenlimit ist die letzte Stufe, nicht die erste', () => {
+  // Sonst sieht ein zu kleines Limit aus wie ein zu strenger Rabatt.
+  const b = prescreenBreakdown(catalog, { ...base, maxCandidates: 1 });
+  assert.equal(b.profitable.length, 2);
+  assert.equal(b.capped.length, 1);
+});
+
+test('prescreen liefert weiterhin genau die gekappte Liste', () => {
+  for (const settings of [base, { ...base, maxCandidates: 1 }, { ...base, maxBuyPrice: 100000 }]) {
+    assert.deepEqual(
+      prescreen(catalog, settings).map((i) => i.itemId),
+      prescreenBreakdown(catalog, settings).capped.map((i) => i.itemId),
+    );
+  }
+});
+
+// --- Warum eine Zeile durchfaellt ---
+
+const row = (over = {}) => ({
+  profitPerUnit: 50000, profitPct: 20, buy: 100000, listingAgeHours: 1, ...over,
+});
+
+test('der Ablehnungsgrund unterscheidet Profit, Preis und Alter', () => {
+  const settings = { ...base, minProfitAbs: 10000, minProfitPct: 5, maxBuyPrice: 200000, maxListingAgeHours: 24 };
+  assert.equal(rejectionReason(row(), settings), null);
+  assert.equal(rejectionReason(row({ profitPerUnit: 500 }), settings), 'profit');
+  assert.equal(rejectionReason(row({ profitPct: 1 }), settings), 'profit');
+  assert.equal(rejectionReason(row({ buy: 300000 }), settings), 'price');
+  assert.equal(rejectionReason(row({ listingAgeHours: 48 }), settings), 'age');
+});
+
+test('passesFilters und rejectionReason koennen nicht auseinanderlaufen', () => {
+  const settings = { ...base, minProfitAbs: 10000, minProfitPct: 5, maxBuyPrice: 200000, maxListingAgeHours: 24 };
+  const cases = [row(), row({ profitPerUnit: 500 }), row({ buy: 300000 }), row({ listingAgeHours: 48 })];
+  for (const r of cases) {
+    assert.equal(passesFilters(r, settings), rejectionReason(r, settings) === null);
+  }
 });

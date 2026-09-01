@@ -1,23 +1,24 @@
 // Verdrahtung der Flugseite.
 
-import { loadSettings, saveSettings } from './storage.js?v=13';
-import { fetchMarketplace } from './weav3r.js?v=13';
+import { loadSettings, saveSettings } from './storage.js?v=14';
+import { fetchMarketplace } from './weav3r.js?v=14';
 import {
   fetchTravelStocks, parseTravelExport, travelUrl, YataError, YATA_URL,
-} from './yata.js?v=13';
+} from './yata.js?v=14';
 import {
   COUNTRIES, AIRSTRIPS, countryName, oneWayMinutes, planTrips, planCountry,
-} from './travel.js?v=13';
+} from './travel.js?v=14';
 import {
   loadStock, saveStock, recordSnapshot, seriesFor, predict, estimate,
   chanceAtLeast, backtest, restockInfo, mergeStock,
-} from './travelStock.js?v=13';
-import { inStockWindows, windowRate, recentRestocks, hourProfile } from './restock.js?v=13';
-import { capacityFromPerks, flyMethodKey, BASE_CAPACITY } from './capacity.js?v=13';
-import { fetchTravel, fetchPerks, TornApiError } from './torn.js?v=13';
-import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=13';
-import { renderTable } from './table.js?v=13';
-import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=13';
+} from './travelStock.js?v=14';
+import { inStockWindows, windowRate, recentRestocks, hourProfile } from './restock.js?v=14';
+import { capacityFromPerks, flyMethodKey, BASE_CAPACITY } from './capacity.js?v=14';
+import { fetchTravel, fetchPerks, TornApiError } from './torn.js?v=14';
+import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=14';
+import { renderTable } from './table.js?v=14';
+import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=14';
+import { restorePanels } from './panels.js?v=14';
 
 let prices = new Map();
 let stocks = new Map();      // code -> [{itemId, itemName, cost, quantity}]
@@ -851,6 +852,12 @@ function init() {
   });
   loadCollected();
   render();
+
+  // Zuletzt: die Kaesten so aufklappen, wie man die Seite verlassen hat.
+  // Sechs Aufklapper untereinander sind sonst bei jedem Besuch dieselbe
+  // Klickstrecke. Erst hier, damit ein wiederhergestellter Kasten auf
+  // gefuellte Auswahllisten trifft und nicht auf leere.
+  restorePanels({ page: 'travel' });
 }
 
 init();

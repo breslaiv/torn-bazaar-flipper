@@ -10,6 +10,10 @@
   --warn: #fbbf24;
   --bad: #f87171;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Ohne das rendert iOS Datumsfelder, Auswahllisten und die Tastatur hell -
+     mitten in einer sonst durchgehend dunklen Seite. */
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -40,7 +44,37 @@ header {
   background: var(--panel);
 }
 header h1 { font-size: 16px; margin: 0; letter-spacing: .3px; }
-header nav { margin-left: auto; display: flex; gap: 14px; font-size: 13px; }
+
+/* Die Navigation zeigt alle Seiten, auch die aktuelle. Als Reihe kleiner
+   Textlinks waere jedes Ziel rund 60x18px gross - unter Apples Mindestmass
+   und ohne Hinweis darauf, wo man gerade ist. */
+header nav {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 13px;
+}
+header nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+header nav a:hover { background: var(--panel-2); }
+header nav a[aria-current="page"] {
+  color: var(--text);
+  background: var(--panel-2);
+  border-color: var(--border);
+  font-weight: 600;
+}
+/* Der Verweis nach draussen ist keine Seite dieser App. */
+header nav a.ext { color: var(--muted); }
 
 main { padding: 20px; max-width: 1500px; margin: 0 auto; }
 
@@ -135,6 +169,9 @@ td.num { font-family: var(--mono); }
   margin-left: 6px;
   vertical-align: middle;
 }
+/* Vor dem ersten Scan hat der Chip keinen Inhalt und stand als nackter
+   Strich neben der Ueberschrift. */
+.tag:empty { display: none; }
 .tag.warn { color: var(--warn); border-color: #5b4a1a; }
 .tag.ok { color: var(--good); border-color: #1f5133; }
 
@@ -193,8 +230,10 @@ pre.raw {
   margin-bottom: 12px;
 }
 .controls label { color: var(--muted); font-size: 12px; white-space: nowrap; }
-/* Ein Auswahlfeld, das auf die Breite seines Pfeils schrumpft, ist unbedienbar. */
-.controls select { flex: 1 1 9em; min-width: 9em; }
+/* Ein Auswahlfeld, das auf die Breite seines Pfeils schrumpft, ist unbedienbar -
+   eines, das auf dem Desktop die halbe Zeile fuellt, aber auch. Wachsen darf es
+   deshalb nicht, schrumpfen bis 9em schon. */
+.controls select { flex: 0 1 16em; min-width: 9em; }
 /* Zahlenfelder brauchen keine halbe Zeile - sonst rutscht das naechste
    Beschriftungspaar auseinander. */
 .controls input { flex: 0 1 6em; min-width: 5em; }
@@ -249,7 +288,9 @@ details.panel:not([open]) { padding: 6px 12px; }
 
   header { padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
   header h1 { font-size: 15px; }
-  header nav { gap: 12px; width: 100%; margin-left: 0; }
+  header nav { gap: 6px; width: 100%; margin-left: 0; }
+  /* Apples Mindestmass fuer ein Tippziel gilt auch fuer die Navigation. */
+  header nav a { min-height: 44px; padding: 0 13px; }
 
   main {
     padding: 14px max(14px, env(safe-area-inset-left)) 14px max(14px, env(safe-area-inset-right));
@@ -462,3 +503,44 @@ textarea { width: 100%; resize: vertical; font-family: var(--mono); font-size: 1
   border-radius: 6px;
   margin: 12px 0 8px;
 }
+
+/* ---------- Trichter: wo die Items geblieben sind ---------- */
+
+.funnel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+.funnel-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 12px;
+  align-items: baseline;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+.funnel-row:first-child { border-top: 0; }
+/* Der Wechsel von Items auf einzelne Angebote: die Zahl springt dort nach
+   oben, weil ein Item mehrere Listings hat. Ohne sichtbare Trennung sieht
+   das aus wie ein Rechenfehler. */
+.funnel-row.section-start { border-top: 1px solid var(--accent); }
+.funnel-row .label { color: var(--text); }
+.funnel-row .n { font-family: var(--mono); font-size: 14px; }
+.funnel-row .why { grid-column: 1 / -1; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.funnel-row .bar {
+  grid-column: 1 / -1;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.funnel-row .bar > span { display: block; height: 100%; background: #3a5679; }
+/* Die Stufe, an der am meisten haengenbleibt - und die einen Regler hat. */
+.funnel-row.worst { background: #1d1a12; }
+.funnel-row.worst .bar > span { background: var(--warn); }
+.funnel-row.worst .why { color: var(--warn); }
+.funnel-row.gone .n { color: var(--muted); }
+
+.funnel-lead { margin: 0 0 8px; }

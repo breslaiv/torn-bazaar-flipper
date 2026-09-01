@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bazaar Flip">
 <meta name="format-detection" content="telephone=no">
-<meta name="app-build" content="13">
+<meta name="app-build" content="14">
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'none';
   script-src 'self';
@@ -31,7 +31,8 @@
   <nav>
     <a href="index.html">Scanner</a>
     <a href="ledger.html">Ledger</a>
-    <a href="diagnose.html">API-Diagnose</a>
+    <a href="travel.html" aria-current="page">Flüge</a>
+    <a href="diagnose.html">Diagnose</a>
   </nav>
 </header>
 
@@ -43,7 +44,7 @@
   </p>
 
   <div class="controls">
-    <label class="field" for="capacity">Kapazität</label>
+    <label class="field" for="travelCapacity">Kapazität</label>
     <input type="number" id="travelCapacity" min="1" max="30" step="1" inputmode="numeric">
     <label class="field" for="travelAirstrip">Flieger</label>
     <select id="travelAirstrip"></select>
@@ -147,7 +148,7 @@
     </div>
   </details>
 
-  <details class="panel">
+  <details class="panel" id="manualStockPanel">
     <summary>Vorrat von Hand erfassen</summary>
     <p class="hint">
       Falls YATA nicht erreichbar ist oder du gerade selbst im Shop stehst: was du siehst,
@@ -174,7 +175,7 @@
     </div>
   </details>
 
-  <details class="panel">
+  <details class="panel" id="timesPanel">
     <summary>Reisezeiten</summary>
     <p class="hint">
       Standardzeiten ohne Perks, mal dem Faktor deines Fliegers. Stimmt eine Zeit bei dir
@@ -188,7 +189,7 @@
     </div>
   </details>
 
-  <details class="panel">
+  <details class="panel" id="observationsPanel">
     <summary>Beobachtungen</summary>
     <p class="hint" id="statsHint"></p>
     <div class="table-wrap">
@@ -204,6 +205,6 @@
   <span id="status"></span>
 </div>
 
-<script type="module" src="js/travelPage.js?v=13"></script>
+<script type="module" src="js/travelPage.js?v=14"></script>
 </body>
 </html>

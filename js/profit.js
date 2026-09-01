@@ -1,6 +1,6 @@
 // Profit-Rechnung: Bazaar-Kauf gegen einen realen Ankaufspreis.
 
-import { ageHours, tooOld } from './freshness.js?v=13';
+import { ageHours, tooOld } from './freshness.js?v=14';
 
 /** Netto-Erloes pro Stueck nach Sicherheitsabschlag und Gebuehr. */
 export function netProceeds(reference, settings) {
@@ -25,31 +25,43 @@ export function netProceeds(reference, settings) {
  * obwohl genau sie die Filter bestehen wuerden.
  */
 export function prescreen(items, settings) {
+  return prescreenBreakdown(items, settings).capped;
+}
+
+/**
+ * Dieselbe Vorauswahl, aber mit ihren Zwischenstaenden.
+ *
+ * Der Trichter auf der Seite soll erklaeren koennen, wo die Items geblieben
+ * sind - und zwar mit denselben Bedingungen, die auch wirklich sieben. Eine
+ * zweite Zaehlfunktion daneben waere nach der ersten Aenderung an prescreen()
+ * still falsch geworden.
+ */
+export function prescreenBreakdown(items, settings) {
   const threshold = settings.prescreenPct / 100;
   const maxBuy = Number(settings.maxBuyPrice) || 0;
   const minAbs = Number(settings.minProfitAbs) || 0;
   const minPct = Number(settings.minProfitPct) || 0;
 
-  return items
-    .filter((i) => (
-      i.totalBazaars > 0
-      && i.marketPrice > 0
-      && i.lowestPrice > 0
-      && i.lowestPrice <= i.marketPrice * threshold
-      && (maxBuy === 0 || i.lowestPrice <= maxBuy)
-    ))
-    .map((i) => {
-      const expectedProfit = netProceeds(i.marketPrice, settings) - i.lowestPrice;
-      return {
-        ...i,
-        gap: i.marketPrice - i.lowestPrice,
-        expectedProfit,
-        expectedPct: (expectedProfit / i.lowestPrice) * 100,
-      };
-    })
-    .filter((i) => i.expectedProfit >= minAbs && i.expectedPct >= minPct)
+  const listed = items.filter((i) => i.totalBazaars > 0 && i.marketPrice > 0 && i.lowestPrice > 0);
+  const discounted = listed.filter((i) => i.lowestPrice <= i.marketPrice * threshold);
+  const affordable = discounted.filter((i) => maxBuy === 0 || i.lowestPrice <= maxBuy);
+
+  const scored = affordable.map((i) => {
+    const expectedProfit = netProceeds(i.marketPrice, settings) - i.lowestPrice;
+    return {
+      ...i,
+      gap: i.marketPrice - i.lowestPrice,
+      expectedProfit,
+      expectedPct: (expectedProfit / i.lowestPrice) * 100,
+    };
+  });
+
+  const profitable = scored.filter((i) => i.expectedProfit >= minAbs && i.expectedPct >= minPct);
+  const capped = [...profitable]
     .sort((a, b) => b.expectedProfit - a.expectedProfit)
     .slice(0, Math.max(0, settings.maxCandidates));
+
+  return { total: items.length, listed, discounted, affordable, profitable, capped };
 }
 
 /** Mindestbewertung als Zahl, robust gegen ein leeres oder unsinniges Feld. */
@@ -192,13 +204,24 @@ export function buildDollarRows(items, settings) {
     }, settings));
 }
 
-export function passesFilters(row, settings) {
-  if (row.profitPerUnit < Number(settings.minProfitAbs)) return false;
-  if (row.profitPct < Number(settings.minProfitPct)) return false;
+/**
+ * Woran eine Zeile scheitert, oder null, wenn sie besteht.
+ *
+ * Der Grund wird gebraucht, nicht nur das Urteil: "keine Treffer" ist keine
+ * Auskunft, "acht Zeilen unter dem Mindestprofit" schon - daran sieht man,
+ * welchen Regler man anfassen muss.
+ */
+export function rejectionReason(row, settings) {
+  if (row.profitPerUnit < Number(settings.minProfitAbs)) return 'profit';
+  if (row.profitPct < Number(settings.minProfitPct)) return 'profit';
   const maxBuy = Number(settings.maxBuyPrice) || 0;
-  if (maxBuy > 0 && row.buy > maxBuy) return false;
-  if (tooOld(row.listingAgeHours, settings.maxListingAgeHours)) return false;
-  return true;
+  if (maxBuy > 0 && row.buy > maxBuy) return 'price';
+  if (tooOld(row.listingAgeHours, settings.maxListingAgeHours)) return 'age';
+  return null;
+}
+
+export function passesFilters(row, settings) {
+  return rejectionReason(row, settings) === null;
 }
 
 export function sortByTotalProfit(rows) {

@@ -1,26 +1,27 @@
-import { loadSettings, saveSettings } from './storage.js?v=13';
+import { loadSettings, saveSettings } from './storage.js?v=14';
 import {
   makeEvent, matchFifo, summarise, profitByItem,
   PERIODS, periodRange, filterByRange,
-} from './ledger.js?v=13';
+} from './ledger.js?v=14';
 import {
   loadEvents, saveEvents, addEvents, removeEvent, updateEvent, clearLedger,
   exportJson, parseImport, markExported, lastExport,
-} from './ledgerStore.js?v=13';
+} from './ledgerStore.js?v=14';
 import {
   fetchLog, fetchLogTypes, fetchLogCategories, deriveLogTypes, deriveCategories,
   inspect, TornLogError,
-} from './tornlog.js?v=13';
-import { reconstructTrades, offersFromLog, STATUS_LABELS } from './tradelog.js?v=13';
-import { loadOffers, mergeOffers, setNote, removeOffer } from './offersStore.js?v=13';
-import { fetchMarketplace, fetchItemTraders } from './weav3r.js?v=13';
+} from './tornlog.js?v=14';
+import { reconstructTrades, offersFromLog, STATUS_LABELS } from './tradelog.js?v=14';
+import { loadOffers, mergeOffers, setNote, removeOffer } from './offersStore.js?v=14';
+import { fetchMarketplace, fetchItemTraders } from './weav3r.js?v=14';
 import {
   valueLots, summariseValuation, buyerLookupOrder, priceMap,
   readPriceCache, writePriceCache, MAX_BUYER_LOOKUPS,
-} from './valuation.js?v=13';
-import { renderTable } from './table.js?v=13';
-import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=13';
-import { APP_VERSION } from './config.js?v=13';
+} from './valuation.js?v=14';
+import { renderTable } from './table.js?v=14';
+import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=14';
+import { APP_VERSION } from './config.js?v=14';
+import { restorePanels } from './panels.js?v=14';
 
 let events = [];
 let offers = [];
@@ -985,8 +986,9 @@ function init() {
   reload();
 
   // Bei leerem Ledger fuehren sonst vier Null-Kacheln und zwei leere Tabellen,
-  // bevor man ueberhaupt zum Einrichten kommt.
-  document.getElementById('importPanel').open = events.length === 0;
+  // bevor man ueberhaupt zum Einrichten kommt. Danach zaehlt, wie der Nutzer
+  // die Kaesten zuletzt stehen liess.
+  restorePanels({ page: 'ledger', defaults: { importPanel: events.length === 0 } });
 
   // Kurse aus dem Zwischenspeicher kosten nichts und fuellen sofort die
   // Wertspalten. Nur wenn nichts Frisches dasteht, geht ein Request raus -

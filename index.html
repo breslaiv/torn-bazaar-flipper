@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bazaar Flip">
 <meta name="format-detection" content="telephone=no">
-<meta name="app-build" content="13">
+<meta name="app-build" content="14">
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'none';
   script-src 'self';
@@ -30,10 +30,10 @@
   <span id="lastRun" class="tag"></span>
   <span id="appVersion" class="tag"></span>
   <nav>
+    <a href="index.html" aria-current="page">Scanner</a>
     <a href="ledger.html">Ledger</a>
     <a href="travel.html">Flüge</a>
-    <a href="diagnose.html">API-Diagnose</a>
-    <a href="https://weav3r.dev/api-docs.html" target="_blank" rel="noopener">API-Doku</a>
+    <a href="diagnose.html">Diagnose</a>
   </nav>
 </header>
 
@@ -42,13 +42,14 @@
     Kauft günstige Bazaar-Listings und verkauft sie per Trade weiter.
     <span class="wide-only">Die Käuferpreise sind echte Angebote aus
     <code>/marketplace/{id}/traders</code>, keine geschätzten Marktwerte.
-    Kein API-Key nötig — alle genutzten Routen sind öffentlich.</span>
+    Kein API-Key nötig — alle genutzten Routen sind öffentlich
+    (<a href="https://weav3r.dev/api-docs.html" target="_blank" rel="noopener">API-Doku</a>).</span>
   </p>
 
   <details class="panel" id="settingsPanel">
     <summary>Einstellungen</summary>
 
-    <h2>Modus</h2>
+    <h2>Was gesucht wird</h2>
     <div class="grid">
       <label class="field">Was gescannt wird
         <select id="scanMode">
@@ -57,26 +58,7 @@
         </select>
         <span class="hint">$1-Modus listet Items, die für einen Dollar im Bazaar stehen.</span>
       </label>
-      <label class="field" data-flip-only>Referenzpreis
-        <select id="referenceMode">
-          <option value="trader">Ankaufspreis des besten Käufers</option>
-          <option value="market_price">Torn-Marktpreis</option>
-        </select>
-        <span class="hint">Im Käufer-Modus entfallen Items ohne aktiven Abnehmer.</span>
-      </label>
-      <label class="field">Sicherheitsabschlag (%)
-        <input type="number" id="sellFactor" min="1" max="200" step="1">
-        <span class="hint">100 = Referenz wird voll angesetzt.</span>
-      </label>
-      <label class="field">Verkaufsgebühr (%)
-        <input type="number" id="marketFeePct" min="0" max="50" step="0.1">
-        <span class="hint">Trades sind gebührenfrei. Nur für einen Item-Market-Exit relevant.</span>
-      </label>
-    </div>
-
-    <h2 class="mt">Vorauswahl</h2>
-    <div class="grid">
-      <label class="field">Kandidat ab Rabatt
+      <label class="field">Kandidat ab Rabatt (%)
         <input type="number" id="prescreenPct" min="1" max="100" step="1">
         <span class="hint">Nur Items, deren billigstes Listing höchstens X% des Marktpreises kostet.</span>
       </label>
@@ -84,75 +66,105 @@
         <input type="number" id="maxCandidates" min="1" max="45" step="1">
         <span class="hint">Kostet 2 Requests pro Stück. weav3r erlaubt 100/Minute.</span>
       </label>
-      <label class="field">Parallele Abfragen
-        <input type="number" id="concurrency" min="1" max="8" step="1">
-        <span class="hint">Wie viele Kandidaten gleichzeitig geprüft werden. Das Rate-Limit
-          bleibt gleich, der Scan wartet nur nicht mehr auf jede Antwort einzeln.</span>
-      </label>
-      <label class="field" data-flip-only>Listings pro Item
-        <input type="number" id="listingsPerItem" min="1" max="100" step="1">
-      </label>
-      <label class="field" data-flip-only>Käufer pro Item
-        <input type="number" id="tradersPerItem" min="1" max="100" step="1">
-      </label>
-      <label class="field" data-flip-only>Käufer aktiv seit (Stunden)
-        <input type="number" id="tradedWithinHours" min="0" max="168" step="1">
-        <span class="hint">Nur Käufer mit Handel in diesem Zeitraum. 0 = kein Filter.</span>
-      </label>
-      <label class="field">Listing höchstens (Stunden) alt
-        <input type="number" id="maxListingAgeHours" min="0" max="720" step="1">
-        <span class="hint">weav3r sieht Bazaare per Crawl; alte Listings sind oft schon
-          verkauft. Die Spalte <em>Alter</em> zeigt den Wert. 0 = kein Filter, und Zeilen
-          ohne verwertbaren Zeitstempel bleiben immer drin.</span>
-      </label>
-      <label class="field" data-flip-only>Mindestbewertung Käufer
-        <input type="number" id="minBuyerRating" step="1">
-        <span class="hint">Upvotes minus Downvotes, wie im Chip neben dem Käufer.
-          0 lässt neue Käufer zu, negative Werte auch schlecht bewertete.</span>
-      </label>
-    </div>
-
-    <h2 class="mt">Filter</h2>
-    <div class="grid">
       <label class="field">Min. Profit pro Stück ($)
         <input type="number" id="minProfitAbs" min="0" step="1000">
       </label>
       <label class="field">Min. Marge (%)
         <input type="number" id="minProfitPct" min="0" step="1">
       </label>
-      <label class="field">Max. Kaufpreis ($)
-        <input type="number" id="maxBuyPrice" min="0" step="10000">
-        <span class="hint">0 = kein Limit.</span>
-      </label>
       <label class="field">Budget ($)
         <input type="number" id="budget" min="0" step="100000">
         <span class="hint">Begrenzt die Stückzahl und damit den Gesamtprofit. 0 = kein Limit.</span>
       </label>
-      <label class="field">Auto-Refresh (Sekunden)
-        <input type="number" id="autoRefreshSec" min="0" step="30">
-        <span class="hint">0 = aus.</span>
-      </label>
     </div>
 
-    <h2 class="mt">Gegencheck</h2>
-    <div class="grid">
-      <label class="field">W3B-Seite zum Item
-        <input type="text" id="w3bItemUrl" autocomplete="off" placeholder="https://weav3r.dev/marketplace/{ITEM_ID}">
-        <span class="hint">Der Itemname verlinkt dorthin. <code>{ITEM_ID}</code> wird ersetzt, leer = kein Link.</span>
-      </label>
-    </div>
+    <!-- Der Rest wird selten angefasst und stand vorher zwischen Seitenanfang
+         und Trefferliste. Der Trichter unter dem Scan benennt den Regler, der
+         gerade siebt - erst dann muss man hier ueberhaupt hinein. -->
+    <details class="panel" id="advancedPanel">
+      <summary>Feineinstellung</summary>
 
-    <h2 class="mt">Optionale Keys</h2>
-    <div class="grid">
-      <label class="field">Torn API-Key
-        <input type="password" id="tornKey" autocomplete="off" placeholder="optional">
-        <span class="hint">Aktiviert die Gegenprobe gegen den echten Item-Market-Tiefstpreis.</span>
-      </label>
-      <label class="field">weav3r API-Key
-        <input type="password" id="weav3rKey" autocomplete="off" placeholder="optional">
-        <span class="hint">Für die genutzten Routen nicht nötig.</span>
-      </label>
-    </div>
+      <h2>Verkaufsseite</h2>
+      <div class="grid">
+        <label class="field" data-flip-only>Referenzpreis
+          <select id="referenceMode">
+            <option value="trader">Ankaufspreis des besten Käufers</option>
+            <option value="market_price">Torn-Marktpreis</option>
+          </select>
+          <span class="hint">Im Käufer-Modus entfallen Items ohne aktiven Abnehmer.</span>
+        </label>
+        <label class="field">Sicherheitsabschlag (%)
+          <input type="number" id="sellFactor" min="1" max="200" step="1">
+          <span class="hint">100 = Referenz wird voll angesetzt.</span>
+        </label>
+        <label class="field">Verkaufsgebühr (%)
+          <input type="number" id="marketFeePct" min="0" max="50" step="0.1">
+          <span class="hint">Trades sind gebührenfrei. Nur für einen Item-Market-Exit relevant.</span>
+        </label>
+      </div>
+
+      <h2 class="mt">Wie tief geprüft wird</h2>
+      <div class="grid">
+        <label class="field">Parallele Abfragen
+          <input type="number" id="concurrency" min="1" max="8" step="1">
+          <span class="hint">Wie viele Kandidaten gleichzeitig geprüft werden. Das Rate-Limit
+            bleibt gleich, der Scan wartet nur nicht mehr auf jede Antwort einzeln.</span>
+        </label>
+        <label class="field" data-flip-only>Listings pro Item
+          <input type="number" id="listingsPerItem" min="1" max="100" step="1">
+        </label>
+        <label class="field" data-flip-only>Käufer pro Item
+          <input type="number" id="tradersPerItem" min="1" max="100" step="1">
+        </label>
+        <label class="field" data-flip-only>Käufer aktiv seit (Stunden)
+          <input type="number" id="tradedWithinHours" min="0" max="168" step="1">
+          <span class="hint">Nur Käufer mit Handel in diesem Zeitraum. 0 = kein Filter.</span>
+        </label>
+        <label class="field" data-flip-only>Mindestbewertung Käufer
+          <input type="number" id="minBuyerRating" step="1">
+          <span class="hint">Upvotes minus Downvotes, wie im Chip neben dem Käufer.
+            0 lässt neue Käufer zu, negative Werte auch schlecht bewertete.</span>
+        </label>
+      </div>
+
+      <h2 class="mt">Weitere Grenzen</h2>
+      <div class="grid">
+        <label class="field">Max. Kaufpreis ($)
+          <input type="number" id="maxBuyPrice" min="0" step="10000">
+          <span class="hint">0 = kein Limit.</span>
+        </label>
+        <label class="field">Listing höchstens (Stunden) alt
+          <input type="number" id="maxListingAgeHours" min="0" max="720" step="1">
+          <span class="hint">weav3r sieht Bazaare per Crawl; alte Listings sind oft schon
+            verkauft. Die Spalte <em>Alter</em> zeigt den Wert. 0 = kein Filter, und Zeilen
+            ohne verwertbaren Zeitstempel bleiben immer drin.</span>
+        </label>
+        <label class="field">Auto-Refresh (Sekunden)
+          <input type="number" id="autoRefreshSec" min="0" step="30">
+          <span class="hint">0 = aus.</span>
+        </label>
+      </div>
+
+      <h2 class="mt">Gegencheck</h2>
+      <div class="grid">
+        <label class="field">W3B-Seite zum Item
+          <input type="text" id="w3bItemUrl" autocomplete="off" placeholder="https://weav3r.dev/marketplace/{ITEM_ID}">
+          <span class="hint">Der Itemname verlinkt dorthin. <code>{ITEM_ID}</code> wird ersetzt, leer = kein Link.</span>
+        </label>
+      </div>
+
+      <h2 class="mt">Optionale Keys</h2>
+      <div class="grid">
+        <label class="field">Torn API-Key
+          <input type="password" id="tornKey" autocomplete="off" placeholder="optional">
+          <span class="hint">Aktiviert die Gegenprobe gegen den echten Item-Market-Tiefstpreis.</span>
+        </label>
+        <label class="field">weav3r API-Key
+          <input type="password" id="weav3rKey" autocomplete="off" placeholder="optional">
+          <span class="hint">Für die genutzten Routen nicht nötig.</span>
+        </label>
+      </div>
+    </details>
 
     <div class="actions">
       <button id="saveBtn" class="primary">Speichern</button>
@@ -165,6 +177,12 @@
 
     <!-- Auf dem Handy ist die Kopfzeile ausgeblendet; sortiert wird hier. -->
     <p class="hint" id="normalState"></p>
+
+    <!-- Nach einem Scan gefuellt: wo die Items zwischen Katalog und Treffer
+         geblieben sind. Eine leere Tabelle allein sagt nicht, welcher Regler
+         gerade siebt. -->
+    <p class="hint funnel-lead" id="funnelHint" hidden></p>
+    <div id="funnel" class="funnel" hidden></div>
 
   <div class="sortbar">
       <label class="field" for="sortSelect">Sortieren nach</label>
@@ -189,6 +207,6 @@
   <span id="status"></span>
 </div>
 
-<script type="module" src="js/app.js?v=13"></script>
+<script type="module" src="js/app.js?v=14"></script>
 </body>
 </html>

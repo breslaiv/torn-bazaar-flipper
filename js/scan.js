@@ -1,12 +1,12 @@
 // Ablauf eines Scans. Getrennt vom UI, damit er testbar bleibt.
 
-import { fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js?v=13';
-import { fetchItemMarketLow } from './torn.js?v=13';
+import { fetchMarketplace, fetchItemListings, fetchItemTraders, fetchDollarItems } from './weav3r.js?v=14';
+import { fetchItemMarketLow } from './torn.js?v=14';
 import {
-  prescreen, pickBuyer, buildFlipRows, buildDollarRows, passesFilters, sortByTotalProfit,
-  allocateBudget,
-} from './profit.js?v=13';
-import { withNormal } from './normal.js?v=13';
+  prescreenBreakdown, pickBuyer, buildFlipRows, buildDollarRows, rejectionReason,
+  sortByTotalProfit, allocateBudget,
+} from './profit.js?v=14';
+import { withNormal } from './normal.js?v=14';
 
 const noop = () => {};
 
@@ -55,12 +55,22 @@ export async function runFlipScan(settings, opts = {}) {
   onProgress({ phase: 'catalog', text: 'Lade Marktkatalog von weav3r…' });
   const { items, generatedAt } = await api.fetchMarketplace(settings, { signal });
 
-  const candidates = prescreen(items, settings);
+  const breakdown = prescreenBreakdown(items, settings);
+  const candidates = breakdown.capped;
   const stats = {
     catalogSize: items.length,
     candidates: candidates.length,
+    // Zwischenstaende der Vorauswahl: ohne sie sieht ein zu strenger Rabatt
+    // genauso aus wie ein zu kleines Kandidatenlimit.
+    listed: breakdown.listed.length,
+    discounted: breakdown.discounted.length,
+    affordable: breakdown.affordable.length,
+    profitable: breakdown.profitable.length,
+    checked: 0,
     withoutBuyer: 0,
     buyerBelowRating: 0,
+    rowsBuilt: 0,
+    belowProfit: 0,
     filteredOut: 0,
     generatedAt,
   };
@@ -92,11 +102,13 @@ export async function runFlipScan(settings, opts = {}) {
     } catch (err) {
       done += 1;
       if (err.name === 'AbortError') return;
+      stats.failed = (stats.failed || 0) + 1;
       // Ein einzelnes Item darf den Scan nicht abbrechen.
       console.warn(`Item ${candidate.itemId} übersprungen:`, err.message);
       return;
     }
     done += 1;
+    stats.checked += 1;
 
     // Getrennt zaehlen: "gibt keinen Kaeufer" und "alle unter der
     // Mindestbewertung" sind verschiedene Gruende, und nur der zweite laesst
@@ -112,13 +124,14 @@ export async function runFlipScan(settings, opts = {}) {
       traders: tradersRes.traders,
     }, settings);
 
+    stats.rowsBuilt += itemRows.length;
     for (const row of itemRows) {
-      if (passesFilters(row, settings)) rows.push(row);
-      else if (row.profitPerUnit >= Number(settings.minProfitAbs) && row.profitPct >= Number(settings.minProfitPct)) {
-        // Profitabel, aber an Alter oder Preisgrenze gescheitert. Ohne diese
-        // Zahl sieht ein zu strenger Frische-Filter wie ein leerer Markt aus.
-        stats.filteredOut += 1;
-      }
+      const reason = rejectionReason(row, settings);
+      if (reason === null) rows.push(row);
+      // Profitabel, aber an Alter oder Preisgrenze gescheitert: ohne diese
+      // Zahl sieht ein zu strenger Frische-Filter wie ein leerer Markt aus.
+      else if (reason === 'profit') stats.belowProfit += 1;
+      else stats.filteredOut += 1;
     }
   });
 
@@ -143,16 +156,33 @@ export async function runDollarScan(settings, opts = {}) {
     if (items.length < 100) break;
   }
 
-  const rows = buildDollarRows(collected, settings).filter((r) => passesFilters(r, settings));
+  const built = buildDollarRows(collected, settings);
+  const rows = [];
+  let belowProfit = 0;
+  let filteredOut = 0;
+  for (const row of built) {
+    const reason = rejectionReason(row, settings);
+    if (reason === null) rows.push(row);
+    else if (reason === 'profit') belowProfit += 1;
+    else filteredOut += 1;
+  }
+
   const priced = withNormal(allocateBudget(rows, settings.budget), opts.normalStats || new Map());
   return {
     rows: sortByTotalProfit(priced),
     stats: {
       catalogSize: collected.length,
       candidates: collected.length,
+      listed: collected.length,
+      discounted: collected.length,
+      affordable: collected.length,
+      profitable: collected.length,
+      checked: collected.length,
       withoutBuyer: 0,
       buyerBelowRating: 0,
-      filteredOut: 0,
+      rowsBuilt: built.length,
+      belowProfit,
+      filteredOut,
     },
   };
 }
