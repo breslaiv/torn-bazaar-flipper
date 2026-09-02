@@ -239,11 +239,43 @@ hinweg ist es irreführend, und genau daran bin ich einmal hängengeblieben
 (siehe README, „Der Gesamtwert empfiehlt das falsche Modell"). Wer je über
 Reihen aggregiert, muss relativ rechnen.
 
-**Ein volles Tagesprofil.** Das Modell `daily` gewinnt mit längerer Frist immer
-mehr Reihen (6 → 32), aber wir haben bisher nur Stunden **eines** Nachmittags
-gesehen: sieben von 24 Stunden. Der Abverkauf schwankt über diese sieben
-Stunden um 33 % — ob das Tageszeit ist oder Rauschen, kann erst ein voller Tag
-sagen. Vorher kein Tagesmodell anpassen.
+**Ein gelerntes Modell — erledigt, und zwar negativ.** Nach 6,8 h eines
+Nachmittags schlug Gradient Boosting die bestehenden Modelle bei der
+Entscheidungsfrage („ist Ware da, wenn ich lande?") um 3,0 Punkte
+ausgewogener Genauigkeit. Das sah nach einem Grund aus, eine Trainingsstrecke
+in Python zu bauen.
+
+Mit der ersten Nacht in den Daten ist der Vorsprung weg:
+
+| auf derselben Teilmenge (53 278 Fälle) | |
+|---|---|
+| HistGradientBoosting | 85,4 % |
+| `daily` | **85,1 %** |
+| `drift` | 84,7 % |
+| `flat` | 78,2 % |
+
+**0,3 Punkte statt 3,0.** Der gestrige Abstand war ein Artefakt eines einzigen
+Nachmittags: `daily` konnte seinen Tagesgang nicht zeigen, weil es keinen gab,
+und das gelernte Verfahren glich das aus. Sobald das Signal in den Daten war,
+war der Ausgleich überflüssig.
+
+Geprüft wurde auch der naheliegende Einwand — gewinnt `daily` nur, weil es
+sich abmeldet? Nein: es beantwortet 87 % der Fälle, und auf genau dieser
+Teilmenge stehen beide gleichauf. Wo es schweigt (7 663 Fälle), liegt das
+gelernte Verfahren 2,0 Punkte vor `drift` — das ist der einzige verbliebene
+Vorteil, und er betrifft ein Achtel der Fälle.
+
+Gewichtet ergibt das rund einen halben Punkt, für ein auslieferbares
+(kleineres) Modell noch weniger. Das trägt keine Python-Trainingsstrecke, kein
+Modell-Artefakt und keine Versionierung desselben. **Der billigere Weg wäre,
+`daily` seltener schweigen zu lassen** — oder ihm dort einen besseren
+Rückfall zu geben als `drift`.
+
+Die Messstrecke liegt im Scratchpad und ist in einer Stunde wieder aufgebaut,
+falls jemand es mit mehreren Tagen erneut wissen will. Der Weg dahin:
+Merkmale aus `js/` exportieren, damit Training und App dieselbe Rechnung
+sehen; nach Zeit trennen, nicht zufällig; und gegen alle vier bestehenden
+Modelle vergleichen, nicht gegen keines.
 
 ---
 
