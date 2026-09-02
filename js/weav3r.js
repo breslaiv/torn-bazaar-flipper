@@ -5,8 +5,8 @@
 // Query-Parameter mitgeschickt statt als Header: ein X-API-Key-Header wuerde
 // einen CORS-Preflight ausloesen, den wir von github.io aus nicht brauchen.
 
-import { WEAV3R_BASE, WEAV3R_RATE_LIMIT } from './config.js?v=19';
-import { RateLimiter } from './ratelimit.js?v=19';
+import { WEAV3R_BASE, WEAV3R_RATE_LIMIT } from './config.js?v=20';
+import { RateLimiter } from './ratelimit.js?v=20';
 
 export const limiter = new RateLimiter(WEAV3R_RATE_LIMIT, 'weav3r');
 

@@ -1,26 +1,26 @@
 // Verdrahtung der Flugseite.
 
-import { loadSettings, saveSettings } from './storage.js?v=19';
-import { fetchMarketplace } from './weav3r.js?v=19';
+import { loadSettings, saveSettings } from './storage.js?v=20';
+import { fetchMarketplace } from './weav3r.js?v=20';
 import {
   fetchTravelStocks, parseTravelExport, travelUrl, YataError, YATA_URL,
-} from './yata.js?v=19';
+} from './yata.js?v=20';
 import {
   COUNTRIES, AIRSTRIPS, countryName, oneWayMinutes, planTrips, planCountry, departure,
-} from './travel.js?v=19';
+} from './travel.js?v=20';
 import {
   loadStock, saveStock, recordSnapshot, seriesFor, predict, estimate,
   chanceAtLeast, backtest, restockInfo, mergeStock,
-} from './travelStock.js?v=19';
-import { inStockWindows, windowRate, recentRestocks, hourProfile } from './restock.js?v=19';
-import { capacityFromPerks, flyMethodKey, BASE_CAPACITY } from './capacity.js?v=19';
-import { fetchTravel, fetchPerks, TornApiError } from './torn.js?v=19';
-import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=19';
-import { renderTable } from './table.js?v=19';
+} from './travelStock.js?v=20';
+import { inStockWindows, windowRate, recentRestocks, hourProfile } from './restock.js?v=20';
+import { capacityFromPerks, flyMethodKey, BASE_CAPACITY } from './capacity.js?v=20';
+import { fetchTravel, fetchPerks, TornApiError } from './torn.js?v=20';
+import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=20';
+import { renderTable } from './table.js?v=20';
 import {
   fmtMoney, fmtPct, setStatus, escapeHtml, showVersion, fmtClock, fmtClockTct,
-} from './ui.js?v=19';
-import { restorePanels } from './panels.js?v=19';
+} from './ui.js?v=20';
+import { restorePanels } from './panels.js?v=20';
 
 let prices = new Map();
 let stocks = new Map();      // code -> [{itemId, itemName, cost, quantity}]
@@ -788,6 +788,42 @@ function addManualStock() {
   fillItemList();
   render();
   msg.textContent = `${item.itemName} in ${countryName(code)}: ${fmtUnits.format(quantity)} Stück notiert.`;
+
+  // Zusaetzlich an den lokalen Server, wo die Messreihen dauerhaft liegen.
+  // Der localStorage haelt je Reihe nur die neuesten Punkte - eine eigene
+  // Beobachtung waere dort nach ein paar Stunden vom Sammler verdraengt,
+  // ausgerechnet die genaueste Messung, die es gibt.
+  //
+  // Absichtlich nach der Anzeige: die Eintragung gilt auch ohne Server. Auf
+  // GitHub Pages gibt es den Pfad nicht, und unterwegs ist das Telefon
+  // vielleicht ohne Netz - beides ist kein Grund, die Beobachtung zu
+  // verwerfen.
+  meldeBeobachtung(code, item, msg);
+}
+
+async function meldeBeobachtung(code, item, msg) {
+  try {
+    const res = await fetch('api/beobachtung', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ country: code, item: item.itemId, quantity: item.quantity }),
+    });
+    const antwort = await res.json().catch(() => null);
+
+    if (res.ok && antwort?.ok) {
+      // Dass etwas ersetzt wurde, gehoert gesagt: sonst wundert man sich
+      // spaeter, warum eine Messung von vor einer Minute verschwunden ist.
+      msg.textContent += antwort.ersetzt
+        ? ` In der Datenbank — ersetzt eine Messung von vor weniger als einer Minute.`
+        : ' Auch in der Datenbank.';
+      return;
+    }
+    // Eine abgelehnte Beobachtung ist eine Auskunft, kein Achselzucken: sonst
+    // glaubt man, sie sei gespeichert.
+    msg.textContent += ` Nicht gespeichert: ${antwort?.error ?? `HTTP ${res.status}`}.`;
+  } catch {
+    msg.textContent += ' Nur lokal — kein Server erreichbar.';
+  }
 }
 
 // ---------- Reisezeiten ----------

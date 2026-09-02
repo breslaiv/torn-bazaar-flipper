@@ -35,6 +35,23 @@ CREATE TABLE IF NOT EXISTS runs (
   changes  INTEGER NOT NULL DEFAULT 0,
   errors   INTEGER NOT NULL DEFAULT 0
 );
+
+-- Wer im Shop steht, sieht die Wahrheit: eine eigene Beobachtung ist genauer
+-- als jede fremde Quelle. Sie gehoert deshalb in dieselbe Reihe wie alles
+-- andere - der Messpunkt landet in samples, und hier steht nur, dass er von
+-- einem Menschen kam.
+--
+-- Warum getrennt statt einer Spalte in samples: die heisse Tabelle bleibt
+-- unveraendert (keine Wanderung von Millionen Zeilen), alle bestehenden
+-- Abfragen finden die Beobachtung automatisch, und wer nachsehen will, wo
+-- eine Zahl herkommt, hat trotzdem eine Antwort.
+CREATE TABLE IF NOT EXISTS manual (
+  country  TEXT    NOT NULL,
+  item     INTEGER NOT NULL,
+  ts       INTEGER NOT NULL,
+  note     TEXT,
+  PRIMARY KEY (country, item, ts)
+) WITHOUT ROWID;
 `;
 
 // ---------- reine Umrechnung, ohne Datenbank ----------
@@ -181,6 +198,109 @@ export function readSeries(db, { limit = 500, country = null } = {}) {
       .map((x) => [Number(x.ts), Number(x.quantity)]);
   }
   return series;
+}
+
+/** Obergrenzen, damit ein Tippfehler keine Reihe verdirbt. */
+export const MANUAL_LIMITS = {
+  maxQuantity: 1_000_000,
+  // Rueckwirkend hoechstens einen Tag: wer sich an gestern erinnert, erinnert
+  // sich nicht an die Minute - und der Zeitpunkt ist hier die halbe Messung.
+  maxAgeMs: 24 * 3600 * 1000,
+  // Ein bisschen Vorlauf gegen Uhren, die leicht vorgehen.
+  maxFutureMs: 2 * 60 * 1000,
+};
+
+/**
+ * Prueft eine von Hand gemeldete Beobachtung.
+ *
+ * Getrennt von der Datenbank, damit sich die Regeln ohne Datei testen lassen -
+ * und weil eine Pruefung, die im Server steht, beim naechsten Aufrufer fehlt.
+ *
+ * @returns {{ok:true, wert:object} | {ok:false, grund:string}}
+ */
+export function pruefeBeobachtung(roh, { laender, now = Date.now() } = {}) {
+  if (!roh || typeof roh !== 'object') return { ok: false, grund: 'kein Objekt' };
+
+  const country = String(roh.country ?? '').trim().toLowerCase();
+  if (!laender || !laender.has(country)) return { ok: false, grund: `unbekanntes Land: ${country || '(leer)'}` };
+
+  const item = Number(roh.item);
+  if (!Number.isInteger(item) || item <= 0) return { ok: false, grund: `unbrauchbare Item-ID: ${roh.item}` };
+
+  // Number(null) und Number('') sind 0 - ohne diese Zeile wuerde aus einem
+  // fehlenden Feld eine gemeldete Null, also ein leeres Regal.
+  if (roh.quantity === null || roh.quantity === undefined || roh.quantity === '') {
+    return { ok: false, grund: 'Menge fehlt' };
+  }
+  const quantity = Number(roh.quantity);
+  if (!Number.isInteger(quantity) || quantity < 0 || quantity > MANUAL_LIMITS.maxQuantity) {
+    return { ok: false, grund: `unbrauchbare Menge: ${roh.quantity}` };
+  }
+
+  const ts = roh.ts === undefined || roh.ts === null ? now : Number(roh.ts);
+  if (!Number.isFinite(ts)) return { ok: false, grund: 'unbrauchbarer Zeitstempel' };
+  if (ts > now + MANUAL_LIMITS.maxFutureMs) return { ok: false, grund: 'Zeitstempel liegt in der Zukunft' };
+  if (ts < now - MANUAL_LIMITS.maxAgeMs) return { ok: false, grund: 'Zeitstempel ist aelter als ein Tag' };
+
+  const note = roh.note === undefined || roh.note === null ? null : String(roh.note).slice(0, 200);
+
+  return { ok: true, wert: { country, item, ts: Math.round(ts), quantity, note } };
+}
+
+/**
+ * Zwei Messungen dicht hintereinander sind eine Messung.
+ *
+ * Derselbe Wert wie im Sammler (MIN_GAP_MS in js/travelStock.js), und aus
+ * demselben Grund: aus zwei Punkten im Sekundenabstand liest die
+ * Zyklenerkennung einen Sprung, den es nie gab.
+ */
+export const MANUAL_GAP_MS = 60 * 1000;
+
+/**
+ * Legt eine eigene Beobachtung neben die des Sammlers.
+ *
+ * Der Messpunkt geht nach samples - dort suchen ihn alle Auswertungen - und
+ * die Herkunft nach manual. Beides in einer Transaktion: eine Beobachtung
+ * ohne Herkunftseintrag waere spaeter nicht mehr als eigene zu erkennen.
+ *
+ * **Was im Umkreis einer Minute liegt, wird ersetzt statt ergaenzt.** Zwei
+ * Klicks auf denselben Knopf ergaben sonst zwei widerspruechliche Punkte im
+ * Millisekundenabstand - und daraus liest findCycles() einen Nachschub, den es
+ * nie gab. Ersetzen statt ablehnen, weil der zweite Klick meistens eine
+ * Korrektur ist; und wer im Shop steht, sieht genauer als eine Quelle, die
+ * ihre Antwort bis zum naechsten Import festhaelt.
+ *
+ * @returns {{added:number, ersetzt:number}}
+ */
+export function saveManual(db, { country, item, ts, quantity, note = null }) {
+  db.exec('BEGIN');
+  try {
+    const von = ts - MANUAL_GAP_MS;
+    const bis = ts + MANUAL_GAP_MS;
+
+    const ersetzt = db
+      .prepare('DELETE FROM samples WHERE country = ? AND item = ? AND ts BETWEEN ? AND ?')
+      .run(country, item, von, bis).changes;
+    db.prepare('DELETE FROM manual WHERE country = ? AND item = ? AND ts BETWEEN ? AND ?')
+      .run(country, item, von, bis);
+
+    const added = db
+      .prepare('INSERT OR REPLACE INTO samples (country, item, ts, quantity) VALUES (?, ?, ?, ?)')
+      .run(country, item, ts, quantity).changes;
+    db.prepare('INSERT OR REPLACE INTO manual (country, item, ts, note) VALUES (?, ?, ?, ?)')
+      .run(country, item, ts, note);
+
+    db.exec('COMMIT');
+    return { added, ersetzt };
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+/** Wie viele Punkte einer Reihe von Hand kamen - fuer die Datenlage-Seite. */
+export function manualCount(db) {
+  return Number(db.prepare('SELECT COUNT(*) AS n FROM manual').get()?.n) || 0;
 }
 
 export function recordRun(db, { ts = Date.now(), source = null, polls = 0, changes = 0, errors = 0 } = {}) {

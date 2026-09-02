@@ -22,9 +22,9 @@
 //                vergleichen. So kommt die Guete aus Messung statt aus einer
 //                Faustregel, die ich mir ausgedacht habe.
 
-import { median, weightAt, weightedQuantile, HALF_LIFE_MINUTES } from './stats.js?v=19';
-import { MODELS, modelByKey, runModel, drainRate } from './travelModels.js?v=19';
-import { findCycles, estimateTimer, estimateCapacity, nextRestock } from './restock.js?v=19';
+import { median, weightAt, weightedQuantile, HALF_LIFE_MINUTES } from './stats.js?v=20';
+import { MODELS, modelByKey, runModel, drainRate } from './travelModels.js?v=20';
+import { findCycles, estimateTimer, estimateCapacity, nextRestock } from './restock.js?v=20';
 
 // Weitergereicht, damit Aufrufer nur ein Modul kennen muessen.
 export { weightAt, weightedQuantile, HALF_LIFE_MINUTES };

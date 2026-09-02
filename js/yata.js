@@ -15,7 +15,7 @@
 //          was er nicht deuten konnte, statt still eine leere Liste zu
 //          liefern.
 
-import { countryCode } from './travel.js?v=19';
+import { countryCode } from './travel.js?v=20';
 
 export class YataError extends Error {
   constructor(message, status = 0) {

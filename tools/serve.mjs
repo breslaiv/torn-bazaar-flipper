@@ -103,19 +103,82 @@ const json = (res, status, body, req = null) => {
   res.end(nutzlast);
 };
 
+/** Der einzige Pfad, der etwas entgegennimmt. */
+export const BEOBACHTUNG_PFAD = '/api/beobachtung';
+
+/** Groesser als das kann eine Beobachtung nicht sein - alles andere ist Unfug. */
+const MAX_KOERPER = 4096;
+
+/**
+ * Liest einen JSON-Koerper, oder wirft.
+ *
+ * Die Groessengrenze ist kein Feinschliff: ohne sie haelt ein einziger
+ * Aufruf den Speicher des Servers auf, solange jemand sendet.
+ */
+function leseJson(req) {
+  return new Promise((resolve, reject) => {
+    let laenge = 0;
+    const teile = [];
+    req.on('data', (stueck) => {
+      laenge += stueck.length;
+      if (laenge > MAX_KOERPER) {
+        reject(new Error('Koerper zu gross'));
+        req.destroy();
+        return;
+      }
+      teile.push(stueck);
+    });
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(teile).toString('utf8') || 'null'));
+      } catch {
+        reject(new Error('kein gueltiges JSON'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
 /**
  * @param {object} opts
- *   root      Verzeichnis, aus dem ausgeliefert wird
- *   stock     () => Nutzlast fuer data/travel-stock.json, oder null
- *   health    () => Objekt fuer /health
+ *   root         Verzeichnis, aus dem ausgeliefert wird
+ *   stock        () => Nutzlast fuer data/travel-stock.json, oder null
+ *   health       () => Objekt fuer /health
+ *   beobachtung  (wert) => Ergebnis, oder null - nimmt eigene Messungen entgegen
  */
-export function createServer({ root = '.', stock = null, health = null } = {}) {
+export function createServer({ root = '.', stock = null, health = null, beobachtung = null } = {}) {
   return createHttpServer((req, res) => {
+    const path = (req.url || '/').split('?')[0];
+
+    // Der Dienst beantwortete bisher ausschliesslich GET, und das war eine
+    // Sicherheitseigenschaft. Aufgegeben wird sie so eng wie moeglich: genau
+    // ein Pfad, genau eine Methode.
+    if (req.method === 'POST' && beobachtung && path === BEOBACHTUNG_PFAD) {
+      // application/json erzwingt im Browser einen Preflight, und den
+      // beantwortet dieser Server nicht. Damit kann keine fremde Seite
+      // ungefragt in die Messreihe schreiben, obwohl der Dienst im Tailnet
+      // erreichbar ist. Die Pruefung ist also kein Formalismus.
+      const typ = String(req.headers['content-type'] || '').split(';')[0].trim();
+      if (typ !== 'application/json') {
+        return json(res, 415, { error: 'Content-Type application/json erwartet' }, req);
+      }
+
+      return leseJson(req).then(
+        (koerper) => {
+          try {
+            const ergebnis = beobachtung(koerper);
+            return json(res, ergebnis.ok ? 200 : 400, ergebnis, req);
+          } catch (err) {
+            return json(res, 500, { ok: false, error: err.message }, req);
+          }
+        },
+        (err) => json(res, 400, { ok: false, error: err.message }, req),
+      );
+    }
+
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       return json(res, 405, { error: 'nur GET' }, req);
     }
-
-    const path = (req.url || '/').split('?')[0];
 
     // Aus der Datenbank statt von der Platte. Der Pfad ist derselbe, den die
     // Seite auf GitHub Pages abfragt.
@@ -191,13 +254,29 @@ export function parseArgs(argv = []) {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
-  const { openStore, stockPayload, storeStats } = await import('./store.mjs');
+  const {
+    openStore, stockPayload, storeStats, pruefeBeobachtung, saveManual, recordRun,
+  } = await import('./store.mjs');
   const db = openStore(opts.db);
+
+  const { COUNTRIES } = await import('../js/travel.js');
+  const laender = new Set(COUNTRIES.map((c) => c.code));
 
   const server = createServer({
     root: opts.root,
     stock: () => stockPayload(db, { limit: opts.limit }),
     health: () => ({ ok: true, ...storeStats(db), pid: process.pid, uptime: process.uptime() }),
+    beobachtung: (koerper) => {
+      const geprueft = pruefeBeobachtung(koerper, { laender });
+      if (!geprueft.ok) return { ok: false, error: geprueft.grund };
+
+      const { added, ersetzt } = saveManual(db, geprueft.wert);
+      // Damit spaeter ablesbar ist, dass hier ein Mensch gemessen hat.
+      recordRun(db, { source: 'manuell', polls: 0, changes: added });
+      console.log(`  Beobachtung: ${geprueft.wert.country}:${geprueft.wert.item} `
+        + `= ${geprueft.wert.quantity}${ersetzt ? ` (${ersetzt} Punkt(e) ersetzt)` : ''}`);
+      return { ok: true, added, ersetzt, gespeichert: geprueft.wert };
+    },
   });
 
   server.listen(opts.port, opts.host, () => {

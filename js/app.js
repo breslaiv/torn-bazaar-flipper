@@ -1,12 +1,12 @@
-import { DEFAULTS } from './config.js?v=19';
-import { loadSettings, saveSettings, clearSettings, hasSavedSettings } from './storage.js?v=19';
-import { runFlipScan, runDollarScan, verifyWithTorn } from './scan.js?v=19';
+import { DEFAULTS } from './config.js?v=20';
+import { loadSettings, saveSettings, clearSettings, hasSavedSettings } from './storage.js?v=20';
+import { runFlipScan, runDollarScan, verifyWithTorn } from './scan.js?v=20';
 import {
   renderRows, renderHead, setStatus, installSorting, fmtMoneyShort, showVersion,
-} from './ui.js?v=19';
-import { statsMap, STATS_URL } from './normal.js?v=19';
-import { funnelStages, biggestDrop } from './funnel.js?v=19';
-import { restorePanels } from './panels.js?v=19';
+} from './ui.js?v=20';
+import { statsMap, STATS_URL } from './normal.js?v=20';
+import { funnelStages, biggestDrop } from './funnel.js?v=20';
+import { restorePanels } from './panels.js?v=20';
 
 const NUMERIC_FIELDS = new Set([
   'sellFactor', 'marketFeePct', 'prescreenPct', 'maxCandidates', 'listingsPerItem',
