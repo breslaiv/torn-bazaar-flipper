@@ -15,13 +15,24 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-// Das Skript ist fuer den Browser gebaut. Diese Attrappen reichen ihm.
+// Das Skript ist fuer den Browser gebaut. Diese Attrappen reichen ihm - sie
+// muessen nur so viel koennen, dass es ohne DOM nicht stolpert.
+const knoten = () => ({
+  style: {},
+  textContent: '',
+  addEventListener() {},
+  append() {},
+  appendChild() {},
+  remove() {},
+});
+
 globalThis.window = { fetch: async () => ({}) };
 globalThis.XMLHttpRequest = function XHR() {};
 globalThis.XMLHttpRequest.prototype.open = function open() {};
+globalThis.location = { pathname: '/travelagency.php', search: '' };
 globalThis.document = {
   body: { innerText: '', appendChild() {} },
-  createElement: () => ({ style: {}, textContent: '' }),
+  createElement: knoten,
 };
 
 await import('../userscript/torn-beobachter.user.js');
@@ -113,4 +124,32 @@ test('die Sperrfrist entspricht der des Sammlers', async () => {
   const { MIN_GAP_MS } = await import('../js/travelStock.js');
   assert.equal(B.EINSTELLUNGEN.mindestabstandMs, MIN_GAP_MS,
     'zwei Regeln fuer dieselbe Frage waeren zwei Wahrheiten');
+});
+
+test('der Bericht sammelt, was gefunden wurde — auch ohne Land', () => {
+  // Auf dem Telefon gibt es keine Entwicklerkonsole. Ein Skript, dessen
+  // Ergebnis nur in console.log steht, ist dort stumm - und die Erkundung
+  // lebt davon, dass man sieht, was es gefunden hat.
+  B.bericht.funde.length = 0;
+  B.bericht.quellen.length = 0;
+  B.bericht.form = null;
+  B.zuletzt.clear();
+
+  globalThis.document.body.innerText = 'irgendeine Torn-Seite ohne Land';
+  B.verarbeite({ DB: { stocks: [{ id: 206, quantity: 42 }] } }, 'xhr /test');
+
+  assert.equal(B.bericht.funde.length, 1, 'ohne Land wird trotzdem notiert');
+  assert.deepEqual(B.bericht.quellen, ['xhr /test']);
+  assert.match(B.bericht.form, /206/, 'die Rohform gehoert dazu, sonst laesst sich nichts schaerfen');
+});
+
+test('der Bericht laesst sich als Text ausgeben und bleibt handlich', () => {
+  B.bericht.funde.length = 0;
+  for (let i = 0; i < 100; i++) B.bericht.funde.push({ item: 1000 + i, quantity: i, name: null });
+
+  const text = B.berichtText();
+  const gelesen = JSON.parse(text);
+  assert.equal(gelesen.insgesamt, 100, 'die Gesamtzahl bleibt sichtbar');
+  assert.ok(gelesen.funde.length <= 25, 'aber nicht alle hundert werden abgetippt');
+  assert.match(text, /travelagency/, 'die Adresse gehoert dazu');
 });
