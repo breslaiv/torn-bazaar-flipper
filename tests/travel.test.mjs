@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   COUNTRIES, countryCode, countryName, travelFactor, oneWayMinutes,
-  rateItem, planCountry, planTrips, departure,
+  rateItem, planCountry, planTrips, departure, messeFlug, FLIGHT_MIN_MINUTES,
 } from '../js/travel.js';
 
 const base = { travelCapacity: 5, budget: 0, marketFeePct: 0, travelAirstrip: 'standard' };
@@ -140,4 +140,57 @@ test('ohne Timer oder ohne Flugdauer gibt es keine Abflugzeit', () => {
   assert.equal(departure(null, 30, jetzt), null);
   assert.equal(departure({ at: jetzt + 60000 }, null, jetzt), null);
   assert.equal(departure({ at: jetzt + 60000 }, NaN, jetzt), null);
+});
+
+// ---------- Flugdauer stoppen ----------
+
+test('eine gestoppte Flugdauer wird auf Minuten gerundet', () => {
+  // Zwei Knopfdruecke haben keine Nachkommastelle an Genauigkeit.
+  const start = Date.UTC(2026, 8, 2, 12, 0, 0);
+  const r = messeFlug({ startedAt: start, now: start + 41.4 * 60000 });
+  assert.equal(r.ok, true);
+  assert.equal(r.minutes, 41);
+});
+
+test('ein Fehlgriff wird nicht als Flug gespeichert', () => {
+  // Die gemessene Zeit schlaegt die Tabelle. Ein Fehlwert verdirbt also jede
+  // Abflugempfehlung fuer dieses Ziel, bis ihn jemand bemerkt - lieber gar
+  // keine Messung.
+  const start = Date.UTC(2026, 8, 2, 12, 0, 0);
+  const r = messeFlug({ startedAt: start, now: start + 30000 });
+  assert.equal(r.ok, false);
+  assert.match(r.grund, /kein Flug/);
+});
+
+test('eine vergessene Uhr wird nicht als Flug gespeichert', () => {
+  // Suedafrika dauert ohne Perks knapp fuenf Stunden. Was laenger laeuft, ist
+  // eine Uhr von gestern.
+  const start = Date.UTC(2026, 8, 2, 12, 0, 0);
+  const r = messeFlug({ startedAt: start, now: start + 14 * 3600e3 });
+  assert.equal(r.ok, false);
+  assert.match(r.grund, /zu lange/);
+});
+
+test('ohne Start gibt es keine Dauer', () => {
+  assert.equal(messeFlug({}).ok, false);
+  assert.equal(messeFlug({ startedAt: null }).ok, false);
+  const start = Date.UTC(2026, 8, 2, 12, 0, 0);
+  assert.equal(messeFlug({ startedAt: start, now: start - 60000 }).ok, false);
+});
+
+test('die kuerzeste moegliche Reise passt noch durch', () => {
+  // Mexiko mit Business Class: 26 min mal 0,3 sind knapp acht Minuten. Die
+  // Untergrenze darf die nicht abweisen.
+  const kuerzeste = 26 * travelFactor('business');
+  assert.ok(kuerzeste > FLIGHT_MIN_MINUTES, `${kuerzeste} min lieferte die Untergrenze aus`);
+
+  const start = Date.UTC(2026, 8, 2, 12, 0, 0);
+  assert.equal(messeFlug({ startedAt: start, now: start + kuerzeste * 60000 }).ok, true);
+});
+
+test('eine gemessene Zeit schlaegt die Tabelle', () => {
+  // Der Grund, warum das Stoppen ueberhaupt lohnt: an dieser Zahl haengt die
+  // Abflugempfehlung.
+  assert.notEqual(oneWayMinutes('can', {}), 38);
+  assert.equal(oneWayMinutes('can', { travelTimes: { can: 38 } }), 38);
 });

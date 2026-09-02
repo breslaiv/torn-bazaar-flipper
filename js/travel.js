@@ -79,6 +79,42 @@ export function travelFactor(key) {
 }
 
 /**
+ * Grenzen einer gestoppten Flugdauer.
+ *
+ * Nach unten drei Minuten: Business Class drueckt Mexiko auf knapp acht, alles
+ * darunter ist ein Fehlgriff und keine Messung. Nach oben acht Stunden -
+ * Suedafrika dauert ohne Perks knapp fuenf, und was laenger laeuft, ist eine
+ * vergessene Stoppuhr. Beides abzufangen ist wichtiger, als es klingt: die
+ * gemessene Zeit schlaegt die Tabelle, ein Fehlwert verdirbt also jede
+ * Abflugempfehlung fuer dieses Ziel, bis ihn jemand bemerkt.
+ */
+export const FLIGHT_MIN_MINUTES = 3;
+export const FLIGHT_MAX_MINUTES = 8 * 60;
+
+/**
+ * Wertet eine gestoppte Flugdauer aus.
+ *
+ * @param {{startedAt:number, now?:number}} args
+ * @returns {{ok:true, minutes:number} | {ok:false, grund:string}}
+ */
+export function messeFlug({ startedAt, now = Date.now() } = {}) {
+  if (!Number.isFinite(startedAt)) return { ok: false, grund: 'kein Startzeitpunkt' };
+
+  const minutes = (now - startedAt) / 60000;
+  if (minutes < 0) return { ok: false, grund: 'der Start liegt in der Zukunft' };
+  if (minutes < FLIGHT_MIN_MINUTES) {
+    return { ok: false, grund: `nur ${minutes.toFixed(1)} min — das war kein Flug` };
+  }
+  if (minutes > FLIGHT_MAX_MINUTES) {
+    return { ok: false, grund: `${(minutes / 60).toFixed(1)} h — die Uhr lief zu lange` };
+  }
+  // Auf die Minute gerundet: die Tabelle rechnet in Minuten, und eine
+  // Nachkommastelle behauptete eine Genauigkeit, die ein Fingerdruck auf zwei
+  // Knoepfe nicht hat.
+  return { ok: true, minutes: Math.round(minutes) };
+}
+
+/**
  * Einwegzeit fuer ein Land.
  * @param {object} settings  travelAirstrip und optional travelTimes[code]
  */

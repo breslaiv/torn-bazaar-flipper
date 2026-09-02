@@ -1,27 +1,27 @@
-import { loadSettings, saveSettings } from './storage.js?v=20';
+import { loadSettings, saveSettings } from './storage.js?v=21';
 import {
   makeEvent, matchFifo, summarise, profitByItem,
   PERIODS, periodRange, filterByRange,
-} from './ledger.js?v=20';
+} from './ledger.js?v=21';
 import {
   loadEvents, saveEvents, addEvents, removeEvent, updateEvent, clearLedger,
   exportJson, parseImport, markExported, lastExport,
-} from './ledgerStore.js?v=20';
+} from './ledgerStore.js?v=21';
 import {
   fetchLog, fetchLogTypes, fetchLogCategories, deriveLogTypes, deriveCategories,
   inspect, TornLogError,
-} from './tornlog.js?v=20';
-import { reconstructTrades, offersFromLog, STATUS_LABELS } from './tradelog.js?v=20';
-import { loadOffers, mergeOffers, setNote, removeOffer } from './offersStore.js?v=20';
-import { fetchMarketplace, fetchItemTraders } from './weav3r.js?v=20';
+} from './tornlog.js?v=21';
+import { reconstructTrades, offersFromLog, STATUS_LABELS } from './tradelog.js?v=21';
+import { loadOffers, mergeOffers, setNote, removeOffer } from './offersStore.js?v=21';
+import { fetchMarketplace, fetchItemTraders } from './weav3r.js?v=21';
 import {
   valueLots, summariseValuation, buyerLookupOrder, priceMap,
   readPriceCache, writePriceCache, MAX_BUYER_LOOKUPS,
-} from './valuation.js?v=20';
-import { renderTable } from './table.js?v=20';
-import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=20';
-import { APP_VERSION } from './config.js?v=20';
-import { restorePanels } from './panels.js?v=20';
+} from './valuation.js?v=21';
+import { renderTable } from './table.js?v=21';
+import { fmtMoney, fmtPct, setStatus, escapeHtml, showVersion } from './ui.js?v=21';
+import { APP_VERSION } from './config.js?v=21';
+import { restorePanels } from './panels.js?v=21';
 
 let events = [];
 let offers = [];

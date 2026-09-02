@@ -1,7 +1,7 @@
 // Bei jeder Aenderung hochzaehlen und danach tools/version-assets.py laufen
 // lassen: der Stempel haengt an jedem Import und macht eine neue Fassung zu
 // einer eigenen URL. Ohne ihn liefert der Browser tagelang den alten Stand.
-export const APP_VERSION = '20';
+export const APP_VERSION = '21';
 
 // Zentrale Konfiguration. Alles hier ist ueber die Einstellungen im UI
 // ueberschreibbar und landet dann in localStorage.
@@ -75,6 +75,10 @@ export const DEFAULTS = {
   travelCapacity: 5,           // Items pro Flug: 5 ohne Koffer, bis 19 mit
   travelAirstrip: 'standard',  // siehe AIRSTRIPS in js/travel.js
   travelTimes: {},             // gemessene Einwegzeiten je Land, schlagen die Tabelle
+  // Laufender Flug der Stoppuhr: {code, startedAt} oder null. Gehoert hierher,
+  // weil saveSettings() nur Schluessel aus DEFAULTS uebernimmt - ohne diesen
+  // Eintrag verschwindet die Uhr beim Speichern, und zwar lautlos.
+  flight: null,
 
   // Betrieb
   autoRefreshSec: 0,           // 0 = aus

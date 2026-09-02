@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Bazaar Flip">
 <meta name="format-detection" content="telephone=no">
-<meta name="app-build" content="20">
+<meta name="app-build" content="21">
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'none';
   script-src 'self';
@@ -182,6 +182,21 @@
       Standardzeiten ohne Perks, mal dem Faktor deines Fliegers. Stimmt eine Zeit bei dir
       nicht, trag deine gemessene ein — die schlägt die Tabelle.
     </p>
+    <p class="hint">
+      Oder stoppen statt tippen: beim Start auf <em>Abflug jetzt</em>, beim Landen auf
+      <em>angekommen</em>. Die Uhr läuft weiter, auch wenn du die Seite schließt.
+    </p>
+    <div class="grid">
+      <label class="field" for="flightCountry">Ziel
+        <select id="flightCountry"></select>
+      </label>
+    </div>
+    <div class="actions">
+      <button id="flightBtn" class="primary">Abflug jetzt</button>
+      <button id="flightCancelBtn" hidden>Verwerfen</button>
+      <span id="flightMsg" class="hint"></span>
+    </div>
+
     <div class="grid" id="timeGrid"></div>
     <div class="actions">
       <button id="saveTimesBtn">Zeiten speichern</button>
@@ -206,6 +221,6 @@
   <span id="status"></span>
 </div>
 
-<script type="module" src="js/travelPage.js?v=20"></script>
+<script type="module" src="js/travelPage.js?v=21"></script>
 </body>
 </html>

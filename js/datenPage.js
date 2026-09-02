@@ -16,10 +16,10 @@
 //   data/travel-stock.json   die Messreihen (lokal aus SQLite, sonst Datei)
 //   /health                  Kennzahlen des lokalen Servers, fehlt auf Pages
 
-import { showVersion } from './ui.js?v=20';
-import { findCycles, estimateTimer } from './restock.js?v=20';
-import { backtest, MIN_CHECKS } from './travelStock.js?v=20';
-import { countryName } from './travel.js?v=20';
+import { showVersion } from './ui.js?v=21';
+import { findCycles, estimateTimer } from './restock.js?v=21';
+import { backtest, MIN_CHECKS } from './travelStock.js?v=21';
+import { countryName } from './travel.js?v=21';
 
 const el = (id) => document.getElementById(id);
 const MINUTE = 60000;

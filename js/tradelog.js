@@ -20,7 +20,7 @@
 // und deshalb sind die Muster verankert: "trade items add" darf nicht auch
 // auf "trade items add other user" passen.
 
-import { makeEvent, isValidEvent } from './ledger.js?v=20';
+import { makeEvent, isValidEvent } from './ledger.js?v=21';
 
 /**
  * Wie ein Trade geendet hat. "offen" heisst nur: im gelesenen Ausschnitt des

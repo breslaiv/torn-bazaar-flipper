@@ -1,26 +1,27 @@
 // Verdrahtung der Flugseite.
 
-import { loadSettings, saveSettings } from './storage.js?v=20';
-import { fetchMarketplace } from './weav3r.js?v=20';
+import { loadSettings, saveSettings } from './storage.js?v=21';
+import { fetchMarketplace } from './weav3r.js?v=21';
 import {
   fetchTravelStocks, parseTravelExport, travelUrl, YataError, YATA_URL,
-} from './yata.js?v=20';
+} from './yata.js?v=21';
 import {
   COUNTRIES, AIRSTRIPS, countryName, oneWayMinutes, planTrips, planCountry, departure,
-} from './travel.js?v=20';
+  messeFlug,
+} from './travel.js?v=21';
 import {
   loadStock, saveStock, recordSnapshot, seriesFor, predict, estimate,
   chanceAtLeast, backtest, restockInfo, mergeStock,
-} from './travelStock.js?v=20';
-import { inStockWindows, windowRate, recentRestocks, hourProfile } from './restock.js?v=20';
-import { capacityFromPerks, flyMethodKey, BASE_CAPACITY } from './capacity.js?v=20';
-import { fetchTravel, fetchPerks, TornApiError } from './torn.js?v=20';
-import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=20';
-import { renderTable } from './table.js?v=20';
+} from './travelStock.js?v=21';
+import { inStockWindows, windowRate, recentRestocks, hourProfile } from './restock.js?v=21';
+import { capacityFromPerks, flyMethodKey, BASE_CAPACITY } from './capacity.js?v=21';
+import { fetchTravel, fetchPerks, TornApiError } from './torn.js?v=21';
+import { priceMap, readPriceCache, writePriceCache } from './valuation.js?v=21';
+import { renderTable } from './table.js?v=21';
 import {
   fmtMoney, fmtPct, setStatus, escapeHtml, showVersion, fmtClock, fmtClockTct,
-} from './ui.js?v=20';
-import { restorePanels } from './panels.js?v=20';
+} from './ui.js?v=21';
+import { restorePanels } from './panels.js?v=21';
 
 let prices = new Map();
 let stocks = new Map();      // code -> [{itemId, itemName, cost, quantity}]
@@ -839,6 +840,80 @@ function renderTimeGrid() {
     </label>`).join('');
 }
 
+/**
+ * Die Stoppuhr fuer die Flugdauer.
+ *
+ * Der laufende Flug steht in den Einstellungen, nicht im Arbeitsspeicher: ein
+ * Flug nach Suedafrika dauert fuenf Stunden, und in der Zeit wird das Telefon
+ * gesperrt, die Seite entladen und vielleicht der Browser geschlossen. Eine
+ * Uhr, die das nicht ueberlebt, misst genau einmal - beim Ausprobieren.
+ */
+function laufenderFlug() {
+  const f = settings().flight;
+  return f && Number.isFinite(f.startedAt) && f.code ? f : null;
+}
+
+function zeigeFlug() {
+  const btn = document.getElementById('flightBtn');
+  const abbrechen = document.getElementById('flightCancelBtn');
+  const msg = document.getElementById('flightMsg');
+  const wahl = document.getElementById('flightCountry');
+  const laeuft = laufenderFlug();
+
+  abbrechen.hidden = !laeuft;
+  wahl.disabled = Boolean(laeuft);
+
+  if (!laeuft) {
+    btn.textContent = 'Abflug jetzt';
+    return;
+  }
+  wahl.value = laeuft.code;
+  btn.textContent = 'angekommen';
+  const minuten = Math.floor((Date.now() - laeuft.startedAt) / 60000);
+  msg.textContent = `Unterwegs nach ${countryName(laeuft.code)} — seit ${fmtMinutes(minuten)}.`;
+}
+
+function flugKnopf() {
+  const msg = document.getElementById('flightMsg');
+  const laeuft = laufenderFlug();
+
+  if (!laeuft) {
+    const code = document.getElementById('flightCountry').value;
+    saveSettings({ ...settings(), flight: { code, startedAt: Date.now() } });
+    zeigeFlug();
+    msg.textContent = `Uhr läuft für ${countryName(code)}. Beim Landen auf „angekommen“.`;
+    return;
+  }
+
+  const gemessen = messeFlug({ startedAt: laeuft.startedAt });
+  if (!gemessen.ok) {
+    // Nicht stillschweigend verwerfen: wer eine Stunde geflogen ist, will
+    // wissen, warum nichts gespeichert wurde.
+    msg.textContent = `Nicht übernommen: ${gemessen.grund}. Mit „Verwerfen“ zurücksetzen.`;
+    return;
+  }
+
+  const s = settings();
+  const vorher = s.travelTimes?.[laeuft.code];
+  saveSettings({
+    ...s,
+    travelTimes: { ...s.travelTimes, [laeuft.code]: gemessen.minutes },
+    flight: null,
+  });
+
+  renderTimeGrid();
+  zeigeFlug();
+  render();
+  msg.textContent = `${countryName(laeuft.code)}: ${gemessen.minutes} min gemessen`
+    + `${Number.isFinite(vorher) ? ` (vorher ${vorher})` : ''}. Gilt ab jetzt für die Abflugzeiten.`;
+}
+
+function flugVerwerfen() {
+  saveSettings({ ...settings(), flight: null });
+  zeigeFlug();
+  document.getElementById('flightMsg').textContent = 'Verworfen — nichts gespeichert.';
+}
+
 function saveTimes() {
   const travelTimes = {};
   for (const c of COUNTRIES) {
@@ -912,6 +987,11 @@ function init() {
   document.getElementById('applyPasteBtn').addEventListener('click', applyPasted);
   document.getElementById('countrySelect').addEventListener('change', renderDetail);
   document.getElementById('addStockBtn').addEventListener('click', addManualStock);
+  document.getElementById('flightCountry').innerHTML = COUNTRIES
+    .map((c) => `<option value="${c.code}">${escapeHtml(c.name)}</option>`).join('');
+  document.getElementById('flightBtn').addEventListener('click', flugKnopf);
+  document.getElementById('flightCancelBtn').addEventListener('click', flugVerwerfen);
+  zeigeFlug();
   document.getElementById('saveTimesBtn').addEventListener('click', saveTimes);
   document.getElementById('resetTimesBtn').addEventListener('click', () => {
     saveSettings({ ...settings(), travelTimes: {} });
