@@ -944,6 +944,25 @@ Was dabei sichtbar wird, war vorher unsichtbar:
 `daily` steigt entsprechend von 6 auf 32 gewonnene Reihen. Genau diese
 Unterscheidung war auf 8 Minuten unmöglich.
 
+**Nachtrag, nachdem die erste Nacht in den Daten war.** Die Zahlen oben
+stammen aus 6,8 Stunden eines Nachmittags. Mit 18,3 Stunden — also
+einschließlich Abend, Nacht und frühem Morgen — zeigt sich, warum `daily`
+überhaupt gebaut wurde: der Abverkauf ist nachts messbar langsamer.
+
+| Stunde UTC | Abverkauf (% des Bestands je Minute) |
+|---|---|
+| 02 | 1,44 |
+| 05 | 1,51 |
+| 12 | 2,18 |
+| **15** | **2,43** |
+| 23 | 2,10 |
+
+Ein geordneter Verlauf über 19 der 24 Stunden, kein Zufallszickzack — die
+Spanne beträgt 49 % des Medians. Entsprechend gewinnt `daily` jetzt deutlich
+öfter: auf 60 Minuten Frist **43 statt 15** Reihen, auf 120 Minuten **51 statt
+28**. Das Modell lag die ganze Zeit im Code und konnte sich nur nicht zeigen,
+weil ihm die Tageszeiten fehlten.
+
 ### Der Gesamtwert empfiehlt das falsche Modell
 
 In der Tabelle oben hat `cycle` mit 122–131 den mit Abstand größten Fehler —

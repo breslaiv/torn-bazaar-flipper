@@ -64,24 +64,41 @@ Damit ist der Engpass endgültig die Laufzeit. `--stats` zählt deshalb jetzt
 **Zyklen statt Messpunkte**: ein volles Regal liefert beliebig viele Punkte und
 verrät nichts über seinen Timer.
 
-Stand nach 6,8 h: 335 abgeschlossene Zyklen, aber nur 96 von 227 Reihen haben
-überhaupt einen gezeigt und nur 23 genug für eine geprüfte Vorhersage. **Die
-langsamen Items brauchen Tage bis Wochen.** Das ist kein Mangel des Verfahrens,
+Stand nach 18,3 h: 747 abgeschlossene Zyklen, 132 von 227 Reihen haben
+mindestens einen gezeigt, 49 genug für eine geprüfte Vorhersage. **Die
+langsamen Items brauchen weiterhin Tage.** Das ist kein Mangel des Verfahrens,
 sondern die Antwort auf die Frage.
 
-**Was der Timer wert ist:** Bei den zehn schnellsten Items ist die
-Timer-Streuung (0,17–0,95 min) **kleiner als die eigene Messunsicherheit**
-(1,65–2,55 min); der unerklärte Rest ist im Median 0,00 min. Der Timer ist also
-eine Konstante je Item, und alles, was wie Schwankung aussieht, ist die
-60-Sekunden-Auflösung der Quelle. **Daran kann kein Verfahren etwas verbessern
-— auch kein trainiertes.** Enger wird es nur durch mehr Zyklen, weil
-`estimateTimer()` die Einklammerungen schneidet.
+**Was der Timer wert ist — und was daran gestern zu früh behauptet war.**
+Nach 6,8 h sah es an den zehn schnellsten Items so aus, als sei der Timer
+durchweg eine Konstante je Item: die Streuung lag unter der eigenen
+Messunsicherheit, der unerklärte Rest bei 0,00 min. Mit 49 statt 10 Reihen
+gilt das **nicht mehr allgemein**:
 
-**Offene Beobachtung:** Die Timer dieser neun Items liegen alle zwischen 12,7
-und 13,7 Minuten, sind bei unserer Auflösung also nicht unterscheidbar. Ob das
-eine gemeinsame Spielkonstante ist oder Zufall einer Gruppe billiger,
-schnelldrehender Items, entscheidet sich, sobald langsamere Items genug Zyklen
-haben. Nicht vorher behaupten.
+| | |
+|---|---|
+| unerklärter Rest | Median 0,39 min, größter **185,6 min** |
+| Reihen, deren Streuung die Messunsicherheit übersteigt | **29 von 49** |
+
+Für die schnell drehenden Items bleibt es richtig, für die Mehrheit nicht.
+Wer `estimateTimer()` vertraut, sollte die Zahl der Zyklen daneben lesen.
+
+**Die 13-Minuten-Beobachtung ist widerlegt** — und sie war ausdrücklich als
+„nicht vorher behaupten" markiert, zu Recht. Über 49 Reihen reichen die Timer
+von **2,1 bis 254,3 Minuten**; nur 14 (29 %) liegen zwischen 12 und 15. Die
+Enge war eine Eigenschaft der billigen, schnellen Gruppe, keine
+Spielkonstante:
+
+```
+   0–5 min    1     11–16 min  14     16–30 min   8
+  30–90 min  17     ab 90 min   9
+```
+
+**Ein Zusammenhang, den ich nicht erwartet hätte:** Items mit großem Bestand
+haben den *kürzeren* Timer (Median 29,3 min ab 500 Stück gegen 56,4 min
+darunter). Vermutlich ist der Bestand nur ein Stellvertreter für „billig und
+beliebt" gegen „teuer und selten" — als Mechanismus ist das nicht geprüft, nur
+als Korrelation gemessen.
 
 ---
 
